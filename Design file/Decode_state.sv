@@ -23,7 +23,7 @@ module RegFile (
     localparam int NumRegs = 32 ;
     logic [`REG_SIZE:0] regs [NumRegs];
 
-    always_ff @(negedge clk)
+    always_ff @(posedge clk)
     begin
         if(rst)
         begin

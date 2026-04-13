@@ -91,6 +91,7 @@ module DatapathPipelined
     logic [`REG_SIZE:0] aluout_fromM ;
     logic [`REG_SIZE:0] f_pc_current;
     logic [`REG_SIZE:0] pc_branch ;
+    logic [`REG_SIZE:0] pc_branch_fromM ;
     logic is_branch ;
     logic [`INST_SIZE:0] inst_fromD ;
     logic [`REG_SIZE:0]  pc_fromD ;
@@ -146,6 +147,9 @@ module DatapathPipelined
     logic [`REG_SIZE:0] ex_data ;
     logic is_div ;
     logic b_cond ;
+    logic b_cond_fromM ;
+    logic jump_fromM ;
+    logic [1:0] branch_fromM ;
     logic s_bypass_ex ;
     logic [`REG_SIZE:0] s_data_ex ;
     logic [`INST_SIZE:0] ra_fromM ;
@@ -173,7 +177,7 @@ module DatapathPipelined
       begin
         f_pc_current <= 32'd0;
       end
-      else if(is_branch)  f_pc_current <= pc_branch ;
+      else if(is_branch)  f_pc_current <= pc_branch_fromM ;
       else if(!(forward_stall | div_stall | halt)) f_pc_current <= f_pc_current + 4 ;
     end
     // send PC to imem
@@ -299,17 +303,6 @@ module DatapathPipelined
     /*****************/
     /* EXECUTE STAGE */
     /*****************/
-    assign base_addr = (jump_fromX[1])? rs1_fromX : pc_fromX ;
-    cla branch_pc (
-        .a(base_addr),
-        .b(imm_fromX),
-        .sum(tmp_pc),
-        .cin(1'b0),
-        .carry_out(e[0])
-    );
-    //set the last bit to 0 for JALR, remain branch already have the last bit is 0
-    assign pc_branch = {tmp_pc[31:1], 1'b0} ;
-    assign return_addr = pc_fromX + 4 ;
 
     alu_control AluControl(
       .opcode(aluop_fromX),
@@ -347,6 +340,18 @@ module DatapathPipelined
     );
     assign operand2 = (op2_choose_fromX)? imm_fromX : base_op2 ;
 
+    assign base_addr = (jump_fromX[1])? operand1 : pc_fromX ;
+    cla branch_pc (
+        .a(base_addr),
+        .b(imm_fromX),
+        .sum(tmp_pc),
+        .cin(1'b0),
+        .carry_out(e[0])
+    );
+    //set the last bit to 0 for JALR, remain branch already have the last bit is 0
+    assign pc_branch = {tmp_pc[31:1], 1'b0} ;
+    assign return_addr = pc_fromX + 4 ;
+
     ALUs ALU(
       .rst(rst),
       .rs1(operand1),
@@ -359,17 +364,17 @@ module DatapathPipelined
       .b_cond(b_cond)
     );
 
-    M_ALUs M_ALU(
-      .clk(clk),
-      .rst(rst),
-      .rs1(operand1),
-      .rs2(operand2),
-      .control(alu_control_fromX[2:0]),
-      .alu_out(m_alu_out)
-    );
+    // M_ALUs M_ALU(
+    //   .clk(clk),
+    //   .rst(rst),
+    //   .rs1(operand1),
+    //   .rs2(operand2),
+    //   .control(alu_control_fromX[2:0]),
+    //   .alu_out(m_alu_out)
+    // );
 
-    assign tmp_aluout = (delay_ctrl.done)? m_alu_out : alu_out ;
-    assign ex_data = (is_lui_fromX)? imm_fromX : tmp_aluout ;
+    //assign tmp_aluout = (delay_ctrl.done)? m_alu_out : alu_out ;
+    assign ex_data = (is_lui_fromX)? imm_fromX : alu_out ;
 
     detect_MemForwarding s_bypassing_ex(
       .w_we(rd_we_fromW),
@@ -379,20 +384,15 @@ module DatapathPipelined
     );
     assign s_data_ex = (s_bypass_ex)? rd_in : rs2_fromX ;
 
-    branch_condition detect_branch(
-      .b_cond(b_cond),
-      .inst_jump(jump_fromX[0]),
-      .inst_branch(branch_fromX),
-      .is_branch(is_branch)
-    );
-
     m_pipelined M(
       .clk(clk), .rst(rst),
+      .i_pc_branch(pc_branch),
       .i_aluout(ex_data),
       .i_rs2_data(s_data_ex),
       .i_rs2_addr(rs2_addr),
       .i_rd((delay_ctrl.done)? delay_ctrl.rd : rd_fromX),
       .i_ra(return_addr),
+      .o_pc_branch(pc_branch_fromM),
       .o_aluout(aluout_fromM),
       .o_rs2_data(rs2_data_fromM),
       .o_rs2_addr(rs2_addr_fromM),
@@ -402,12 +402,19 @@ module DatapathPipelined
 
     m_control_pipelined Mcontrol(
       .clk(clk), .rst(rst),
+      .nops(is_branch),
       .is_div(is_div_fromX),
       .div_ctrl(delay_ctrl),
+      .i_b_cond(b_cond),
+      .i_jump(jump_fromX[0]),
+      .i_branch(branch_fromX),
       .i_store_control(store_control_fromX),
       .i_load_control(load_control_fromX),
       .i_rd_we(rd_we_fromX),
       .i_rd_in_choose(rd_choose_fromX),
+      .o_b_cond(b_cond_fromM),
+      .o_jump(jump_fromM),
+      .o_branch(branch_fromM),
       .o_store_control(store_control_fromM),
       .o_load_control(load_control_fromM),
       .o_rd_we(rd_we_fromM),
@@ -417,6 +424,13 @@ module DatapathPipelined
     /****************/
     /* MEMORY STAGE */
     /****************/
+    branch_condition detect_branch(
+      .b_cond(b_cond_fromM),
+      .inst_jump(jump_fromM),
+      .inst_branch(branch_fromM),
+      .is_branch(is_branch)
+    );
+
     assign addr_to_dmem = aluout_fromM ;
 
     detect_MemForwarding store_bypassing_mem(
@@ -537,9 +551,9 @@ endmodule
 module Processor (
     input                 clk,
     input                 rst,
-    output                halt
-    //output [ `REG_SIZE:0] trace_writeback_pc,
-    //output [`INST_SIZE:0] trace_writeback_inst
+    output                halt,
+    output [ `REG_SIZE:0] trace_writeback_pc,
+    output [`INST_SIZE:0] trace_writeback_inst
 );
 
   logic [`INST_SIZE:0] inst_from_imem;

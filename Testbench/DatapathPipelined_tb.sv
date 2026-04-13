@@ -1,4 +1,4 @@
-`timescale 1ns / 1ps
+`timescale 1ns / 1ns
 `define REG_SIZE 31
 `define INST_SIZE 31
 
@@ -355,164 +355,164 @@ module DatapathPipelined_tb() ;
         clear_imem(5) ;
 
 
-        $display("\n============TESTCASE DIVIDER============");
+//        $display("\n============TESTCASE DIVIDER============");
 
-        $display("\n========TESTCASE ALL-DIV1========\n") ;
-        // addi x1, x0, -837 / lui x2, 0xabcde
-        // div x3, x1, x2
-        // divu x4, x1, x2
-        // rem x5, x1, x2
-        // remu x6, x1, x2
-        dut.memory.mem_array[0] = 32'hcbb00093 ;
-        dut.memory.mem_array[1] = 32'habcde137 ;
-        dut.memory.mem_array[2] = 32'h0220c1b3 ;
-        dut.memory.mem_array[3] = 32'h0220d233 ;
-        dut.memory.mem_array[4] = 32'h0220e2b3 ;
-        dut.memory.mem_array[5] = 32'h0220f333 ;
-        rst = 1'b1 ; clock(2) ; rst = 1'b0 ;
-        clock(17) ;
-        expect_rf(32'h00000000,3) ; // div
-        expect_rf(32'h00000001,4) ; // divu
-        expect_rf(32'hFFFFFCBB,5) ; // rem
-        expect_rf(32'h54321CBB,6) ; // remu
-        clear_imem(6) ;
+//        $display("\n========TESTCASE ALL-DIV1========\n") ;
+//        // addi x1, x0, -837 / lui x2, 0xabcde
+//        // div x3, x1, x2
+//        // divu x4, x1, x2
+//        // rem x5, x1, x2
+//        // remu x6, x1, x2
+//        dut.memory.mem_array[0] = 32'hcbb00093 ;
+//        dut.memory.mem_array[1] = 32'habcde137 ;
+//        dut.memory.mem_array[2] = 32'h0220c1b3 ;
+//        dut.memory.mem_array[3] = 32'h0220d233 ;
+//        dut.memory.mem_array[4] = 32'h0220e2b3 ;
+//        dut.memory.mem_array[5] = 32'h0220f333 ;
+//        rst = 1'b1 ; clock(2) ; rst = 1'b0 ;
+//        clock(17) ;
+//        expect_rf(32'h00000000,3) ; // div
+//        expect_rf(32'h00000001,4) ; // divu
+//        expect_rf(32'hFFFFFCBB,5) ; // rem
+//        expect_rf(32'h54321CBB,6) ; // remu
+//        clear_imem(6) ;
 
-        $display("\n========TESTCASE ALL-DIV2========\n") ;
-        // addi x2, x0, -837 / lui x1, 0xabcde
-        // div x3, x1, x2
-        // divu x4, x1, x2
-        // rem x5, x1, x2
-        // remu x6, x1, x2
-        dut.memory.mem_array[0] = 32'habcde0b7 ;
-        dut.memory.mem_array[1] = 32'hcbb00113 ;
-        dut.memory.mem_array[2] = 32'h0220c1b3 ;
-        dut.memory.mem_array[3] = 32'h0220d233 ;
-        dut.memory.mem_array[4] = 32'h0220e2b3 ;
-        dut.memory.mem_array[5] = 32'h0220f333 ;
-        rst = 1'b1 ; clock(2) ; rst = 1'b0 ;
-        clock(17) ;
-        expect_rf(32'h0019C06b,3) ; // div
-        expect_rf(32'h00000000,4) ; // divu
-        expect_rf(-553,5) ; // rem
-        expect_rf(32'habcde000,6) ; // remu
-        clear_imem(6) ;
+//        $display("\n========TESTCASE ALL-DIV2========\n") ;
+//        // addi x2, x0, -837 / lui x1, 0xabcde
+//        // div x3, x1, x2
+//        // divu x4, x1, x2
+//        // rem x5, x1, x2
+//        // remu x6, x1, x2
+//        dut.memory.mem_array[0] = 32'habcde0b7 ;
+//        dut.memory.mem_array[1] = 32'hcbb00113 ;
+//        dut.memory.mem_array[2] = 32'h0220c1b3 ;
+//        dut.memory.mem_array[3] = 32'h0220d233 ;
+//        dut.memory.mem_array[4] = 32'h0220e2b3 ;
+//        dut.memory.mem_array[5] = 32'h0220f333 ;
+//        rst = 1'b1 ; clock(2) ; rst = 1'b0 ;
+//        clock(17) ;
+//        expect_rf(32'h0019C06b,3) ; // div
+//        expect_rf(32'h00000000,4) ; // divu
+//        expect_rf(-553,5) ; // rem
+//        expect_rf(32'habcde000,6) ; // remu
+//        clear_imem(6) ;
 
-         $display("\n========TESTCASE ALL-DIV3========\n") ;
-         // addi x1, x0, 99
-         // addi x2, x0, 33
-         // divu x3, x1, x2
-         // beq x4, x5, 20
-         // add x6, x3, x1
-         // pc + 20: addi x6, x0, 36
-         // Test if div_stall và branch cùng lúc thì pc vẫn update ko bị stall (do lệnh gây stall bị tính là flush)
-         dut.memory.mem_array[0] = 32'h06300093 ;
-         dut.memory.mem_array[1] = 32'h02100113 ;
-         dut.memory.mem_array[2] = 32'h0220d1b3 ;
-         dut.memory.mem_array[3] = 32'h00209a63 ;
-         dut.memory.mem_array[4] = 32'h00118333 ;
-         dut.memory.mem_array[5] = 32'h00208233 ;
-         dut.memory.mem_array[6] = 32'h001202b3 ;
-         dut.memory.mem_array[8] = 32'h02400313 ;
-         rst = 1'b1 ; clock(2) ; rst = 1'b0 ;
-         clock(10) ;
-         expect_rf(32'h00000024,6) ; // expect branch taken, x6 = 36
-         expect_rf(32'h00000000,3) ; //chưa chia xong
-         clock(3) ;
-         expect_rf(32'h00000003,3) ;
-         clear_imem(9) ;
+//         $display("\n========TESTCASE ALL-DIV3========\n") ;
+//         // addi x1, x0, 99
+//         // addi x2, x0, 33
+//         // divu x3, x1, x2
+//         // beq x4, x5, 20
+//         // add x6, x3, x1
+//         // pc + 20: addi x6, x0, 36
+//         // Test if div_stall và branch cùng lúc thì pc vẫn update ko bị stall (do lệnh gây stall bị tính là flush)
+//         dut.memory.mem_array[0] = 32'h06300093 ;
+//         dut.memory.mem_array[1] = 32'h02100113 ;
+//         dut.memory.mem_array[2] = 32'h0220d1b3 ;
+//         dut.memory.mem_array[3] = 32'h00209a63 ;
+//         dut.memory.mem_array[4] = 32'h00118333 ;
+//         dut.memory.mem_array[5] = 32'h00208233 ;
+//         dut.memory.mem_array[6] = 32'h001202b3 ;
+//         dut.memory.mem_array[8] = 32'h02400313 ;
+//         rst = 1'b1 ; clock(2) ; rst = 1'b0 ;
+//         clock(10) ;
+//         expect_rf(32'h00000024,6) ; // expect branch taken, x6 = 36
+//         expect_rf(32'h00000000,3) ; //chưa chia xong
+//         clock(3) ;
+//         expect_rf(32'h00000003,3) ;
+//         clear_imem(9) ;
 
-         $display("\n========TESTCASE ALL-DIV4========\n") ;
-         // addi x2, x0, 100
-         // addi x3, x0, 2
-         // addi x5, x0, 5
-         // div x1, x2, x3
-         // div x4, x1, x5
-         // div x5, x2, x5
-         // Test stall 7 clk để đợi và chạy song song 2 div
-         dut.memory.mem_array[0] = 32'h06400113 ;
-         dut.memory.mem_array[1] = 32'h00200193 ;
-         dut.memory.mem_array[2] = 32'h00500293 ;
-         dut.memory.mem_array[3] = 32'h023140b3 ;
-         dut.memory.mem_array[4] = 32'h0250c233 ;
-         dut.memory.mem_array[5] = 32'h025142b3 ;
-         rst = 1'b1 ; clock(2) ; rst = 1'b0 ;
-         clock(15) ;
-         expect_rf(32'h00000032,1) ; // expect branch taken, x6 = 36
-         expect_rf(32'h00000000,4) ; //chưa chia xong
-         clock(26) ;
-         expect_rf(32'h0000000A,4) ;
-         expect_rf(32'h00000014,5) ;
-         clear_imem(6) ;
+//         $display("\n========TESTCASE ALL-DIV4========\n") ;
+//         // addi x2, x0, 100
+//         // addi x3, x0, 2
+//         // addi x5, x0, 5
+//         // div x1, x2, x3
+//         // div x4, x1, x5
+//         // div x5, x2, x5
+//         // Test stall 7 clk để đợi và chạy song song 2 div
+//         dut.memory.mem_array[0] = 32'h06400113 ;
+//         dut.memory.mem_array[1] = 32'h00200193 ;
+//         dut.memory.mem_array[2] = 32'h00500293 ;
+//         dut.memory.mem_array[3] = 32'h023140b3 ;
+//         dut.memory.mem_array[4] = 32'h0250c233 ;
+//         dut.memory.mem_array[5] = 32'h025142b3 ;
+//         rst = 1'b1 ; clock(2) ; rst = 1'b0 ;
+//         clock(15) ;
+//         expect_rf(32'h00000032,1) ; // expect branch taken, x6 = 36
+//         expect_rf(32'h00000000,4) ; //chưa chia xong
+//         clock(26) ;
+//         expect_rf(32'h0000000A,4) ;
+//         expect_rf(32'h00000014,5) ;
+//         clear_imem(6) ;
 
-         $display("\n========TESTCASE ALL-DIV5========\n") ;
-         // addi x2, x0, 20
-         // addi x3, x0, 5
-         // addi x4, x0, 4
-         // div x1, x2, x3
-         // beq x1, x4, 20
-         // addi x6, x0, 1
-         // pc+20: addi x7, x0, 1
-         dut.memory.mem_array[0] = 32'h01400113 ;
-         dut.memory.mem_array[1] = 32'h00500193 ;
-         dut.memory.mem_array[2] = 32'h00400213 ;
-         dut.memory.mem_array[3] = 32'h023140b3 ;
-         dut.memory.mem_array[4] = 32'h00408a63 ;
-         dut.memory.mem_array[5] = 32'h00100313 ;
-         dut.memory.mem_array[9] = 32'h00100393 ;
-         rst = 1'b1 ; clock(2) ; rst = 1'b0 ;
-         clock(15) ;
-         expect_rf(32'h00000000,7) ; // branch stall nên chưa execute xong lệnh cuối
-         clock(3) ;
-         expect_rf(32'h00000001,7) ;
-         expect_rf(32'h00000000,6) ; //branch taken nên lệnh này flush
-         clear_imem(10) ;
+//         $display("\n========TESTCASE ALL-DIV5========\n") ;
+//         // addi x2, x0, 20
+//         // addi x3, x0, 5
+//         // addi x4, x0, 4
+//         // div x1, x2, x3
+//         // beq x1, x4, 20
+//         // addi x6, x0, 1
+//         // pc+20: addi x7, x0, 1
+//         dut.memory.mem_array[0] = 32'h01400113 ;
+//         dut.memory.mem_array[1] = 32'h00500193 ;
+//         dut.memory.mem_array[2] = 32'h00400213 ;
+//         dut.memory.mem_array[3] = 32'h023140b3 ;
+//         dut.memory.mem_array[4] = 32'h00408a63 ;
+//         dut.memory.mem_array[5] = 32'h00100313 ;
+//         dut.memory.mem_array[9] = 32'h00100393 ;
+//         rst = 1'b1 ; clock(2) ; rst = 1'b0 ;
+//         clock(15) ;
+//         expect_rf(32'h00000000,7) ; // branch stall nên chưa execute xong lệnh cuối
+//         clock(3) ;
+//         expect_rf(32'h00000001,7) ;
+//         expect_rf(32'h00000000,6) ; //branch taken nên lệnh này flush
+//         clear_imem(10) ;
 
-       $display("\n========TESTCASE ALL-DIV6========\n") ;
-       // addi x2, x0, 20
-       // addi x3, x0, 4
-       // div x1, x2, x3
-       // addi x1, x0, 99
-       // addi x6, x1, 0
-       // addi có rd = x1 -> flush lệnh div phía trên
-       dut.memory.mem_array[0] = 32'h01400113 ;
-       dut.memory.mem_array[1] = 32'h00400193 ;
-       dut.memory.mem_array[2] = 32'h023140b3 ;
-       dut.memory.mem_array[3] = 32'h06300093 ;
-       dut.memory.mem_array[4] = 32'h00008313 ;
-       rst = 1'b1 ; clock(2) ; rst = 1'b0 ;
-       clock(10) ;
-       expect_rf(32'h00000063,6) ;
-       clear_imem(5) ;
+//       $display("\n========TESTCASE ALL-DIV6========\n") ;
+//       // addi x2, x0, 20
+//       // addi x3, x0, 4
+//       // div x1, x2, x3
+//       // addi x1, x0, 99
+//       // addi x6, x1, 0
+//       // addi có rd = x1 -> flush lệnh div phía trên
+//       dut.memory.mem_array[0] = 32'h01400113 ;
+//       dut.memory.mem_array[1] = 32'h00400193 ;
+//       dut.memory.mem_array[2] = 32'h023140b3 ;
+//       dut.memory.mem_array[3] = 32'h06300093 ;
+//       dut.memory.mem_array[4] = 32'h00008313 ;
+//       rst = 1'b1 ; clock(2) ; rst = 1'b0 ;
+//       clock(10) ;
+//       expect_rf(32'h00000063,6) ;
+//       clear_imem(5) ;
 
-         $display("\n========TESTCASE DIVISOR==0========\n");
-         // addi x1, x0, 100  (Dividend = 100)
-         // add  x2, x0, x0   (Divisor = 0)
-         // divu x3, x1, x2   (Should be 0xFFFFFFFF)
-         // remu x4, x1, x2   (Should be 100 / 0x64)
-         dut.memory.mem_array[0] = 32'h06400093;
-         dut.memory.mem_array[1] = 32'h00000133;
-         dut.memory.mem_array[2] = 32'h0220d1b3;
-         dut.memory.mem_array[3] = 32'h0220f233;
-         rst = 1'b1; clock(2); rst = 1'b0;
-         clock(19); // Wait enough cycles for pipeline
-         expect_rf(32'hFFFFFFFF, 3); // DIVU by 0 = -1 (All 1s)
-         expect_rf(100, 4);          // REMU by 0 = Dividend
-         clear_imem(4);
+//         $display("\n========TESTCASE DIVISOR==0========\n");
+//         // addi x1, x0, 100  (Dividend = 100)
+//         // add  x2, x0, x0   (Divisor = 0)
+//         // divu x3, x1, x2   (Should be 0xFFFFFFFF)
+//         // remu x4, x1, x2   (Should be 100 / 0x64)
+//         dut.memory.mem_array[0] = 32'h06400093;
+//         dut.memory.mem_array[1] = 32'h00000133;
+//         dut.memory.mem_array[2] = 32'h0220d1b3;
+//         dut.memory.mem_array[3] = 32'h0220f233;
+//         rst = 1'b1; clock(2); rst = 1'b0;
+//         clock(19); // Wait enough cycles for pipeline
+//         expect_rf(32'hFFFFFFFF, 3); // DIVU by 0 = -1 (All 1s)
+//         expect_rf(100, 4);          // REMU by 0 = Dividend
+//         clear_imem(4);
 
-         $display("\n========TESTCASE MAX UNSIGNED========\n");
-         // addi x1, x0, -1   (Dividend = All 1s / Max Unsigned)
-         // addi x2, x0, 2    (Divisor = 2)
-         // divu x3, x1, x2   (Max / 2 = 0x7FFFFFFF)
-         // remu x4, x1, x2   (Max % 2 = 1)
-         dut.memory.mem_array[0] = 32'hfff00093;
-         dut.memory.mem_array[1] = 32'h00200113;
-         dut.memory.mem_array[2] = 32'h0220d1b3;
-         dut.memory.mem_array[3] = 32'h0220f233;
-         rst = 1'b1; clock(2); rst = 1'b0;
-         clock(19);
-         expect_rf(32'h7FFFFFFF, 3); // (2^32 - 1) / 2
-         expect_rf(1, 4);            // Remainder 1
-         clear_imem(4);
+//         $display("\n========TESTCASE MAX UNSIGNED========\n");
+//         // addi x1, x0, -1   (Dividend = All 1s / Max Unsigned)
+//         // addi x2, x0, 2    (Divisor = 2)
+//         // divu x3, x1, x2   (Max / 2 = 0x7FFFFFFF)
+//         // remu x4, x1, x2   (Max % 2 = 1)
+//         dut.memory.mem_array[0] = 32'hfff00093;
+//         dut.memory.mem_array[1] = 32'h00200113;
+//         dut.memory.mem_array[2] = 32'h0220d1b3;
+//         dut.memory.mem_array[3] = 32'h0220f233;
+//         rst = 1'b1; clock(2); rst = 1'b0;
+//         clock(19);
+//         expect_rf(32'h7FFFFFFF, 3); // (2^32 - 1) / 2
+//         expect_rf(1, 4);            // Remainder 1
+//         clear_imem(4);
     end
 endmodule
 

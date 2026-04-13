@@ -13,29 +13,29 @@
 //`include "cla.sv"
 
 // Prepare for MUL DIV operation
-module transform_2_compliment #(
-   parameter int SIZE = 32
-)
-(
-       input logic  [SIZE-1:0] in,
-       output logic [SIZE-1:0] out
-);
-   logic [SIZE-1:0] inverse_in ;
-   assign inverse_in = ~in ;
-   assign out = inverse_in + 1 ;
-endmodule
+// module transform_2_compliment #(
+//    parameter int SIZE = 32
+// )
+// (
+//        input logic  [SIZE-1:0] in,
+//        output logic [SIZE-1:0] out
+// );
+//    logic [SIZE-1:0] inverse_in ;
+//    assign inverse_in = ~in ;
+//    assign out = inverse_in + 1 ;
+// endmodule
 
-module transform_pos #(
-   parameter int SIZE = 32
-)
-(
-       input logic  [SIZE-1:0] in,
-       output logic [SIZE-1:0] out
-);
-   logic [SIZE-1:0] tmp ;
-   assign tmp = in - 1 ;
-   assign out = ~tmp ;
-endmodule
+// module transform_pos #(
+//    parameter int SIZE = 32
+// )
+// (
+//        input logic  [SIZE-1:0] in,
+//        output logic [SIZE-1:0] out
+// );
+//    logic [SIZE-1:0] tmp ;
+//    assign tmp = in - 1 ;
+//    assign out = ~tmp ;
+// endmodule
 
 module alu_control(
     input [1:0] opcode,
@@ -160,112 +160,112 @@ module ALUs (
     assign b_cond = (branch_control)? alu_out[0] : is_zero ;
 endmodule
 
-module M_ALUs (
-       input  logic clk, rst,
-       input  logic [`REG_SIZE:0] rs1, rs2,
-       input  logic [2:0] control,
-       output logic [`REG_SIZE:0] alu_out,
-       output logic illegal_inst
-);
-   logic [`REG_SIZE:0] pos_rs1, pos_rs2 ;
-   transform_pos #(.SIZE(32)) dividend (
-       .in(rs1),
-       .out(pos_rs1)
-   );
-   transform_pos #(.SIZE(32)) divisor (
-       .in(rs2),
-       .out(pos_rs2)
-   );
+// module M_ALUs (
+//        input  logic clk, rst,
+//        input  logic [`REG_SIZE:0] rs1, rs2,
+//        input  logic [2:0] control,
+//        output logic [`REG_SIZE:0] alu_out,
+//        output logic illegal_inst
+// );
+//    logic [`REG_SIZE:0] pos_rs1, pos_rs2 ;
+//    transform_pos #(.SIZE(32)) dividend (
+//        .in(rs1),
+//        .out(pos_rs1)
+//    );
+//    transform_pos #(.SIZE(32)) divisor (
+//        .in(rs2),
+//        .out(pos_rs2)
+//    );
 
-   logic [`REG_SIZE:0] choice_dividend ;
-   logic [`REG_SIZE:0] choice_divisor ;
-   assign choice_dividend = ((control[0] == 0) & (rs1[31] == 1))? pos_rs1 : rs1 ;
-   assign choice_divisor = ((control[0] == 0) & (rs2[31] == 1))? pos_rs2 : rs2 ;
+//    logic [`REG_SIZE:0] choice_dividend ;
+//    logic [`REG_SIZE:0] choice_divisor ;
+//    assign choice_dividend = ((control[0] == 0) & (rs1[31] == 1))? pos_rs1 : rs1 ;
+//    assign choice_divisor = ((control[0] == 0) & (rs2[31] == 1))? pos_rs2 : rs2 ;
 
-   logic [`REG_SIZE:0] choice_mul1 ;
-   logic [`REG_SIZE:0] choice_mul2 ;
-   assign choice_mul1 = ((control[1:0] != 2'b11) & (rs1[31] == 1))? pos_rs1 : rs1 ;
-   assign choice_mul2 = ((control[1] == 0) & (rs2[31] == 1))? pos_rs2 : rs2 ;
+//    logic [`REG_SIZE:0] choice_mul1 ;
+//    logic [`REG_SIZE:0] choice_mul2 ;
+//    assign choice_mul1 = ((control[1:0] != 2'b11) & (rs1[31] == 1))? pos_rs1 : rs1 ;
+//    assign choice_mul2 = ((control[1] == 0) & (rs2[31] == 1))? pos_rs2 : rs2 ;
 
-   logic [(`REG_SIZE)*2 + 1:0] mul ;
-   assign mul = choice_mul1 * choice_mul2 ;
-   logic [(`REG_SIZE)*2 + 1:0] neg_mul ;
-   transform_2_compliment #(.SIZE(64)) neg3 (
-       .in(mul),
-       .out(neg_mul)
-   );
+//    logic [(`REG_SIZE)*2 + 1:0] mul ;
+//    assign mul = choice_mul1 * choice_mul2 ;
+//    logic [(`REG_SIZE)*2 + 1:0] neg_mul ;
+//    transform_2_compliment #(.SIZE(64)) neg3 (
+//        .in(mul),
+//        .out(neg_mul)
+//    );
 
-   logic [2:0] choose ;
-   localparam logic [2:0] Mul = 3'b000 ;
-   localparam logic [2:0] NegMul = 3'b001 ;
-   localparam logic [2:0] MulH = 3'b010 ;
-   localparam logic [2:0] NegMulH = 3'b011 ;
-   localparam logic [2:0] Quo = 3'b100 ;
-   localparam logic [2:0] NegQuo = 3'b101 ;
-   localparam logic [2:0] Rem = 3'b110 ;
-   localparam logic [2:0] NegRem = 3'b111 ;
-   always_comb
-   begin
-   unique case (control)
-       3'b000: //MUL
-           choose = (rs1[31] ^ rs2[31])? NegMul : Mul ;
-       3'b001: //MULH
-           choose = (rs1[31] ^ rs2[31])? NegMulH : MulH ;
-       3'b010: //MULHSU
-           choose = (rs1[31] == 1)? NegMulH : MulH ;
-       3'b011: //MULHU
-           choose = MulH ;
-       3'b100: //DIV
-           choose = (rs1[31] ^ rs2[31])? NegQuo : Quo ;
-       3'b101: //DIVU
-           choose = Quo ;
-       3'b110: //REM
-           choose = (rs1[31] == 1)? NegRem : Rem ;
-       3'b111: //REMU
-           choose = Rem ;
-       default:    choose = Mul ;
-   endcase
-   end
+//    logic [2:0] choose ;
+//    localparam logic [2:0] Mul = 3'b000 ;
+//    localparam logic [2:0] NegMul = 3'b001 ;
+//    localparam logic [2:0] MulH = 3'b010 ;
+//    localparam logic [2:0] NegMulH = 3'b011 ;
+//    localparam logic [2:0] Quo = 3'b100 ;
+//    localparam logic [2:0] NegQuo = 3'b101 ;
+//    localparam logic [2:0] Rem = 3'b110 ;
+//    localparam logic [2:0] NegRem = 3'b111 ;
+//    always_comb
+//    begin
+//    unique case (control)
+//        3'b000: //MUL
+//            choose = (rs1[31] ^ rs2[31])? NegMul : Mul ;
+//        3'b001: //MULH
+//            choose = (rs1[31] ^ rs2[31])? NegMulH : MulH ;
+//        3'b010: //MULHSU
+//            choose = (rs1[31] == 1)? NegMulH : MulH ;
+//        3'b011: //MULHU
+//            choose = MulH ;
+//        3'b100: //DIV
+//            choose = (rs1[31] ^ rs2[31])? NegQuo : Quo ;
+//        3'b101: //DIVU
+//            choose = Quo ;
+//        3'b110: //REM
+//            choose = (rs1[31] == 1)? NegRem : Rem ;
+//        3'b111: //REMU
+//            choose = Rem ;
+//        default:    choose = Mul ;
+//    endcase
+//    end
 
-   logic [2:0] aluout_choose ;
-   logic [`REG_SIZE:0] quot, rem ;
-   logic [`REG_SIZE:0] neg_quot ;
-   logic [`REG_SIZE:0] neg_rem ;
-   DividerUnsignedPipelined unit (
-       .clk(clk), .rst(rst),
-       .i_signedchoose(choose),
-       .i_dividend(choice_dividend),
-       .i_divisor(choice_divisor),
-       .o_remainder(rem),
-       .o_quotient(quot),
-       .o_signedchoose(aluout_choose)
-   );
-   transform_2_compliment #(.SIZE(32)) neg1 (
-       .in(quot),
-       .out(neg_quot)
-   );
-   transform_2_compliment #(.SIZE(32)) neg2(
-       .in(rem),
-       .out(neg_rem)
-   );
+//    logic [2:0] aluout_choose ;
+//    logic [`REG_SIZE:0] quot, rem ;
+//    logic [`REG_SIZE:0] neg_quot ;
+//    logic [`REG_SIZE:0] neg_rem ;
+//    DividerUnsignedPipelined unit (
+//        .clk(clk), .rst(rst),
+//        .i_signedchoose(choose),
+//        .i_dividend(choice_dividend),
+//        .i_divisor(choice_divisor),
+//        .o_remainder(rem),
+//        .o_quotient(quot),
+//        .o_signedchoose(aluout_choose)
+//    );
+//    transform_2_compliment #(.SIZE(32)) neg1 (
+//        .in(quot),
+//        .out(neg_quot)
+//    );
+//    transform_2_compliment #(.SIZE(32)) neg2(
+//        .in(rem),
+//        .out(neg_rem)
+//    );
 
-   logic [`REG_SIZE:0] tmp_out ;
-   always_comb
-   begin
-        unique case(aluout_choose)
-            Mul:        tmp_out = mul[31:0] ;
-            MulH:       tmp_out = mul[63:32] ;
-            NegMul:     tmp_out = neg_mul [31:0] ;
-            NegMulH:    tmp_out = neg_mul[63:32] ;
-            Quo:        tmp_out = quot ;
-            Rem:        tmp_out = rem ;
-            NegQuo:     tmp_out = neg_quot ;
-            NegRem:     tmp_out = neg_rem ;
-            default:    tmp_out = 0 ;
-        endcase
-        alu_out = (!rst)? tmp_out : 32'b0 ;
-   end
-endmodule
+//    logic [`REG_SIZE:0] tmp_out ;
+//    always_comb
+//    begin
+//         unique case(aluout_choose)
+//             Mul:        tmp_out = mul[31:0] ;
+//             MulH:       tmp_out = mul[63:32] ;
+//             NegMul:     tmp_out = neg_mul [31:0] ;
+//             NegMulH:    tmp_out = neg_mul[63:32] ;
+//             Quo:        tmp_out = quot ;
+//             Rem:        tmp_out = rem ;
+//             NegQuo:     tmp_out = neg_quot ;
+//             NegRem:     tmp_out = neg_rem ;
+//             default:    tmp_out = 0 ;
+//         endcase
+//         alu_out = (!rst)? tmp_out : 32'b0 ;
+//    end
+// endmodule
 
 module branch_condition(
         input  logic b_cond,
@@ -285,11 +285,13 @@ endmodule
 
 module m_pipelined(
         input clk, rst,
+        input  logic [`REG_SIZE:0] i_pc_branch,
         input  logic [`REG_SIZE:0] i_aluout,
         input  logic [`REG_SIZE:0] i_rs2_data,
         input  logic [4:0]         i_rs2_addr,
         input  logic [4:0]         i_rd,
         input  logic [`INST_SIZE:0]i_ra,
+        output logic [`REG_SIZE:0] o_pc_branch,
         output logic [`REG_SIZE:0] o_aluout,
         output logic [`REG_SIZE:0] o_rs2_data,
         output logic [4:0]         o_rs2_addr,
@@ -300,6 +302,7 @@ module m_pipelined(
     begin
         if(rst)
         begin
+            o_pc_branch   <= 32'b0 ;
             o_aluout      <= 32'b0 ;
             o_rs2_data    <= 32'b0 ;
             o_rs2_addr    <= 5'b0 ;
@@ -308,6 +311,7 @@ module m_pipelined(
         end
         else
         begin
+            o_pc_branch   <= i_pc_branch ;
             o_aluout      <= i_aluout ;
             o_rs2_data    <= i_rs2_data ;
             o_rs2_addr    <= i_rs2_addr ;
@@ -319,12 +323,19 @@ endmodule
 
 module m_control_pipelined(
         input  logic clk, rst,
+        input  logic nops,
         input  logic is_div,
         input  div_control_t div_ctrl,
+        input  logic i_b_cond,
+        input  logic i_jump,
+        input  logic [1:0] i_branch,
         input  logic [1:0] i_store_control,
         input  logic [2:0] i_load_control,
         input  logic       i_rd_we,
         input  logic [1:0] i_rd_in_choose,
+        output logic o_b_cond,
+        output logic o_jump,
+        output logic [1:0] o_branch,
         output logic [1:0] o_store_control,
         output logic [2:0] o_load_control,
         output logic       o_rd_we,
@@ -332,8 +343,11 @@ module m_control_pipelined(
 );
     always_ff @(posedge clk)
     begin
-        if(rst | is_div)
+        if(rst | is_div | nops)
         begin
+            o_b_cond       <= 1'b0 ;
+            o_jump         <= 1'b0 ;
+            o_branch       <= 2'b0 ;
             o_store_control<= 2'b11 ;
             o_load_control <= 3'b0 ;
             o_rd_we        <= 1'b0 ;
@@ -343,6 +357,9 @@ module m_control_pipelined(
         begin
             if(div_ctrl.done)
             begin
+                o_b_cond       <= 1'b0 ;
+                o_jump         <= 1'b0 ;
+                o_branch       <= 2'b0 ;
                 o_store_control<= 2'b11 ;
                 o_load_control <= 3'b0 ;
                 o_rd_we        <= div_ctrl.rd_we ;
@@ -354,6 +371,9 @@ module m_control_pipelined(
                 o_load_control <= i_load_control ;
                 o_rd_we        <= i_rd_we ;
                 o_rd_in_choose <= i_rd_in_choose ;
+                o_b_cond       <= i_b_cond ;
+                o_jump         <= i_jump ;
+                o_branch       <= i_branch ;
             end
         end
     end
