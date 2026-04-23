@@ -99,65 +99,69 @@ module ALUs (
 );
 
     logic [`REG_SIZE:0] data2;
-    logic cin;
     logic [`REG_SIZE:0] adder_out;
     logic cout;
+    assign data2 = sub_control? ~(rs2) : rs2 ;
     cla unit(
         .a(rs1),
         .b(data2),
-        .cin(cin),
+        .cin(sub_control),
         .sum(adder_out),
         .carry_out(cout)
     );
 
-    logic [`REG_SIZE:0] tmp_out ;
+    logic [`REG_SIZE:0] alu_add_sub ;
+    logic [`REG_SIZE:0] alu_sll ;
+    logic [`REG_SIZE:0] alu_slt ;
+    logic [`REG_SIZE:0] alu_sltu ;
+    logic [`REG_SIZE:0] alu_xor ;
+    logic [`REG_SIZE:0] alu_sr ;
+    logic [`REG_SIZE:0] alu_or ;
+    logic [`REG_SIZE:0] alu_and ;
     always_comb
     begin
-    //Default
-    data2 = rs2 ;
-    cin = 1'b0 ;
-    unique case (control)
-        3'b000:  begin // ADD, SUB
-            data2 = sub_control? ~(rs2) : rs2 ;
-            cin = sub_control ;
-            tmp_out = adder_out;
-        end
-        3'b001:  begin // SLL
-            tmp_out = rs1 << {rs2[4:0]} ;
-        end
-        3'b010:  begin // SLT
-            data2 = ~rs2 ;
-            cin = 1'b1 ;
-            if ((rs1[31] ^ rs2[31]) & (rs1[31] ^ adder_out[31])) //Detect overflow
-                tmp_out = {31'b0, ~adder_out[31]} ;
-            else tmp_out = {31'b0, adder_out[31]} ;
-        end
-        3'b011:  begin // SLTU
-            data2 = ~rs2 ;
-            cin = 1'b1 ;
-            tmp_out = {31'b0, ~cout} ;
-        end
-        3'b100:  begin // XOR
-            tmp_out = rs1 ^ rs2 ;
-        end
-        3'b101:  begin // SRL, SRA
-            tmp_out = sra_control? ((rs1 >> rs2[4:0]) | ({32{rs1[31]}} << (32-rs2[4:0]))) :
+        alu_add_sub = adder_out ;
+        alu_sll = rs1 << {rs2[4:0]} ;
+        alu_slt = $signed(rs1) < $signed(rs2) ? 32'd1 : 32'b0 ;
+        alu_sltu = rs1 < rs2 ? 32'd1 : 32'b0 ;
+        alu_xor = rs1 ^ rs2 ;
+        alu_sr = sra_control? ((rs1 >> rs2[4:0]) | ({32{rs1[31]}} << (32-rs2[4:0]))) :
                                     (rs1 >> rs2[4:0]) ;
-        end
-        3'b110:  begin // OR
-            tmp_out = rs1 | rs2 ;
-        end
-        3'b111:  begin //AND
-            tmp_out = rs1 & rs2 ;
-        end
-        default: tmp_out = 32'b0 ;
-    endcase
-    alu_out = (!rst)? tmp_out : 32'b0 ;
+        alu_or = rs1 | rs2 ;
+        alu_and = rs1 & rs2 ;
     end
 
-    logic is_zero ;
-    assign is_zero = !(|(alu_out)) ;
-    assign b_cond = (branch_control)? alu_out[0] : is_zero ;
+    always_comb
+    begin
+    unique case (control)
+        3'b000:  begin // ADD, SUB
+            alu_out = alu_add_sub ;
+        end
+        3'b001:  begin // SLL
+            alu_out = alu_sll ;
+        end
+        3'b010:  begin // SLT
+            alu_out = alu_slt ;
+        end
+        3'b011:  begin // SLTU
+            alu_out = alu_sltu ;
+        end
+        3'b100:  begin // XOR
+            alu_out = alu_xor ;
+        end
+        3'b101:  begin // SRL, SRA
+            alu_out = alu_sr ;
+        end
+        3'b110:  begin // OR
+            alu_out = alu_or ;
+        end
+        3'b111:  begin //AND
+            alu_out = alu_and ;
+        end
+        default: alu_out = 32'b0 ;
+    endcase
+    end
+    assign b_cond = (branch_control)? alu_out[0] : !(|alu_out) ;
 endmodule
 
 // module M_ALUs (
@@ -273,14 +277,16 @@ module branch_condition(
         input  logic [1:0] inst_branch, //inst_branch[1] = inst[12]
         output logic is_branch
 );
+    (* max_fanout = 16 *) logic is_branch_reg ;
     always_comb
     begin
-        if(inst_jump) is_branch = 1'b1 ;
+        if(inst_jump) is_branch_reg = 1'b1 ;
         else
         begin
-            is_branch = (inst_branch[0] && (inst_branch[1] ^ b_cond))? 1'b1 : 1'b0 ;
+            is_branch_reg = (inst_branch[0] && (inst_branch[1] ^ b_cond))? 1'b1 : 1'b0 ;
         end
     end
+    assign is_branch = is_branch_reg ;
 endmodule
 
 module m_pipelined(
@@ -298,12 +304,14 @@ module m_pipelined(
         output logic [4:0]         o_rd,
         output logic [`INST_SIZE:0]o_ra
 );
+    (* max_fanout = 16 *) logic aluout_reg ;
+
     always_ff @(posedge clk)
     begin
         if(rst)
         begin
             o_pc_branch   <= 32'b0 ;
-            o_aluout      <= 32'b0 ;
+            aluout_reg    <= 32'b0 ;
             o_rs2_data    <= 32'b0 ;
             o_rs2_addr    <= 5'b0 ;
             o_rd          <= 5'b0 ;
@@ -312,13 +320,14 @@ module m_pipelined(
         else
         begin
             o_pc_branch   <= i_pc_branch ;
-            o_aluout      <= i_aluout ;
+            aluout_reg    <= i_aluout ;
             o_rs2_data    <= i_rs2_data ;
             o_rs2_addr    <= i_rs2_addr ;
             o_rd          <= i_rd ;
             o_ra          <= i_ra ;
         end
     end
+    assign o_aluout = aluout_reg ;
 endmodule
 
 module m_control_pipelined(
@@ -341,6 +350,9 @@ module m_control_pipelined(
         output logic       o_rd_we,
         output logic [1:0] o_rd_in_choose
 );
+    (* max_fanout = 16 *) logic [1:0] store_control_reg ;
+    (* max_fanout = 16 *) logic [2:0] load_control_reg ;
+
     always_ff @(posedge clk)
     begin
         if(rst | is_div | nops)
@@ -348,8 +360,8 @@ module m_control_pipelined(
             o_b_cond       <= 1'b0 ;
             o_jump         <= 1'b0 ;
             o_branch       <= 2'b0 ;
-            o_store_control<= 2'b11 ;
-            o_load_control <= 3'b0 ;
+            store_control_reg <= 2'b11 ;
+            load_control_reg <= 3'b0 ;
             o_rd_we        <= 1'b0 ;
             o_rd_in_choose <= 2'b0 ;
         end
@@ -360,15 +372,15 @@ module m_control_pipelined(
                 o_b_cond       <= 1'b0 ;
                 o_jump         <= 1'b0 ;
                 o_branch       <= 2'b0 ;
-                o_store_control<= 2'b11 ;
-                o_load_control <= 3'b0 ;
+                store_control_reg <= 2'b11 ;
+                load_control_reg <= 3'b0 ;
                 o_rd_we        <= div_ctrl.rd_we ;
                 o_rd_in_choose <= div_ctrl.rd_in_choose ;
             end
             else
             begin
-                o_store_control<= i_store_control ;
-                o_load_control <= i_load_control ;
+                store_control_reg <= i_store_control ;
+                load_control_reg <= i_load_control ;
                 o_rd_we        <= i_rd_we ;
                 o_rd_in_choose <= i_rd_in_choose ;
                 o_b_cond       <= i_b_cond ;
@@ -377,4 +389,6 @@ module m_control_pipelined(
             end
         end
     end
+    assign o_store_control = store_control_reg ;
+    assign o_load_control = load_control_reg ;
 endmodule

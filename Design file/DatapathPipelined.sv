@@ -25,19 +25,21 @@ module f_pipelined (
         output logic [`REG_SIZE:0] o_pc,
         output logic [`REG_SIZE:0] o_inst
 );
+    (* max_fanout = 16*) logic [`REG_SIZE:0] inst_reg ;
     always_ff @(posedge clk)
     begin
         if(rst)
         begin
             o_pc <= 32'b0 ;
-            o_inst <= 32'b0 ;
+            inst_reg <= 32'b0 ;
         end
         else if(!freeze)
         begin
             o_pc <= i_pc ;
-            o_inst <= i_inst ;
+            inst_reg <= i_inst ;
         end
     end
+    assign o_inst = inst_reg ;
 endmodule
 
 module DatapathPipelined
@@ -53,13 +55,8 @@ module DatapathPipelined
         output logic [ `REG_SIZE:0] store_data_to_dmem,
         output logic [         3:0] store_we_to_dmem,
         output logic                halt,
-        output logic                error,
-        // The PC of the inst currently in Writeback. 0 if not a valid inst.
-        output logic [ `REG_SIZE:0] trace_writeback_pc,
-        // The bits of the inst currently in Writeback. 0 if not a valid inst.
-        output logic [`INST_SIZE:0] trace_writeback_inst
+        output logic                error
 );
-
 
     // cycle counter, not really part of any stage but useful for orienting within GtkWave
     // do not rename this as the testbench uses this value
@@ -89,7 +86,7 @@ module DatapathPipelined
     logic [4:0] rd_fromW ;
     logic [1:0] rd_choose_fromM ;
     logic [`REG_SIZE:0] aluout_fromM ;
-    logic [`REG_SIZE:0] f_pc_current;
+    (* max_fanout = 16 *) logic [`REG_SIZE:0] f_pc_current;
     logic [`REG_SIZE:0] pc_branch ;
     logic [`REG_SIZE:0] pc_branch_fromM ;
     logic is_branch ;
@@ -137,7 +134,7 @@ module DatapathPipelined
     logic [2:0] alu_operation ;
     logic is_sub, is_sra, b_type ;
     logic [`REG_SIZE:0] operand1 ;
-    logic [`REG_SIZE:0] operand2 ;
+    (* max_fanout = 16 *) logic [`REG_SIZE:0] operand2 ;
     logic [`REG_SIZE:0] base_op2 ;
     logic [1:0] op1_control ;
     logic [1:0] op2_control ;
@@ -170,7 +167,6 @@ module DatapathPipelined
     /***************/
     /* FETCH STAGE */
     /***************/
-
     // program counter
     always_ff @(posedge clk) begin
       if (rst)
@@ -376,7 +372,7 @@ module DatapathPipelined
     //assign tmp_aluout = (delay_ctrl.done)? m_alu_out : alu_out ;
     assign ex_data = (is_lui_fromX)? imm_fromX : alu_out ;
 
-    detect_MemForwarding s_bypassing_ex(
+    detect_MemForwarding store_bypassing_ex(
       .w_we(rd_we_fromW),
       .w_rd(rd_fromW),
       .m_rs2(rs2_addr),
@@ -493,14 +489,12 @@ module DatapathPipelined
 
 endmodule
 
-module MemorySingleCycle #(
+module DataMemory #(
     parameter int NUM_WORDS = 512
 ) (
     input  logic               rst,                 // rst for both imem and dmem
     input  logic               clk,                 // clock for both imem and dmem
                                                     // The memory reads/writes on @(negedge clk)
-    input  logic [`REG_SIZE:0] pc_to_imem,          // must always be aligned to a 4B boundary
-    output logic [`REG_SIZE:0] inst_from_imem,      // the value at memory location pc_to_imem
     input  logic [`REG_SIZE:0] addr_to_dmem,        // must always be aligned to a 4B boundary
     output logic [`REG_SIZE:0] load_data_from_dmem, // the value at memory location addr_to_dmem
     input  logic [`REG_SIZE:0] store_data_to_dmem,  // the value to be written to addr_to_dmem
@@ -508,25 +502,11 @@ module MemorySingleCycle #(
     // E.g., 4'b1111 will write 4 bytes. 4'b0001 will write only the least-significant byte.
     input  logic [        3:0] store_we_to_dmem
 );
-
   // memory is arranged as an array of 4B words
   logic [`REG_SIZE:0] mem_array [NUM_WORDS];
-
-  // preload instructions to mem_array
-  // initial begin
-  //   $readmemh("mem_initial_contents.hex", mem_array);
-  // end
-
-  // address only use 11 bit: 9 most significant bits is for addr in mem (512 addr),
-  //                          2 last bits is for byte store/load
   localparam int AddrMsb = $clog2(NUM_WORDS) + 1;
   localparam int AddrLsb = 2;
-
-  always_ff @(negedge clk) begin
-    inst_from_imem <= mem_array[pc_to_imem[AddrMsb:AddrLsb]];
-  end
-
-  always_ff @(negedge clk) begin
+  always_ff @(posedge clk) begin
     if(!rst)
     begin
       if (store_we_to_dmem[0]) begin
@@ -541,9 +521,32 @@ module MemorySingleCycle #(
       if (store_we_to_dmem[3]) begin
         mem_array[addr_to_dmem[AddrMsb:AddrLsb]][31:24] <= store_data_to_dmem[31:24];
       end
-      // dmem is "read-first": read returns value before the write
-      load_data_from_dmem <= mem_array[addr_to_dmem[AddrMsb:AddrLsb]];
     end
+  end
+  // dmem read asynchronously
+  assign load_data_from_dmem = mem_array[addr_to_dmem[AddrMsb:AddrLsb]];
+endmodule
+
+module InstMemory #(
+    parameter int NUM_WORDS = 512
+) (
+    input  logic               rst,                 // rst for both imem and dmem
+    input  logic               clk,                 // clock for both imem and dmem
+                                                    // The memory reads/writes on @(negedge clk)
+    input  logic [`REG_SIZE:0] pc_to_imem,          // must always be aligned to a 4B boundary
+    output logic [`REG_SIZE:0] inst_from_imem       // the value at memory location pc_to_imem
+);
+  // memory is arranged as an array of 4B words
+  logic [`REG_SIZE:0] mem_array [NUM_WORDS];
+  //preload instructions to mem_array
+   initial begin
+     $readmemh("mem_initial_contents.hex", mem_array);
+   end
+  localparam int AddrMsb = $clog2(NUM_WORDS) + 1;
+  localparam int AddrLsb = 2;
+
+  always_ff @(negedge clk) begin
+    inst_from_imem <= mem_array[pc_to_imem[AddrMsb:AddrLsb]];
   end
 endmodule
 
@@ -552,26 +555,39 @@ module Processor (
     input                 clk,
     input                 rst,
     output                halt,
-    output [ `REG_SIZE:0] trace_writeback_pc,
-    output [`INST_SIZE:0] trace_writeback_inst
+    output                error
 );
 
+  (* max_fanout = 16 *) logic [ `REG_SIZE:0] rst_syn ;
+  always_ff @(posedge clk)
+  begin
+    rst_syn <= rst ;
+  end
+
   logic [`INST_SIZE:0] inst_from_imem;
-  logic [ `REG_SIZE:0] pc_to_imem, mem_data_addr, mem_data_loaded_value, mem_data_to_write;
+  logic [ `REG_SIZE:0] pc_to_imem, mem_data_addr, mem_data_loaded_value ;
+  logic [`REG_SIZE:0] mem_data_to_write ;
   logic [         3:0] mem_data_we;
 
   // This wire is set by cocotb to the name of the currently-running test, to make it easier
   // to see what is going on in the waveforms.
   logic [(8*32)-1:0] test_case;
 
-  MemorySingleCycle #(
+  InstMemory #(
       .NUM_WORDS(8192)
   ) memory (
-    .rst                 (rst),
+    .rst                 (rst_syn),
     .clk                 (clk),
     // imem is read-only
     .pc_to_imem          (pc_to_imem),
-    .inst_from_imem      (inst_from_imem),
+    .inst_from_imem      (inst_from_imem)
+  );
+
+  DataMemory #(
+      .NUM_WORDS(8192)
+  ) DMEM (
+    .rst                 (rst_syn),
+    .clk                 (clk),
     // dmem is read-write
     .addr_to_dmem        (mem_data_addr),
     .load_data_from_dmem (mem_data_loaded_value),
@@ -581,7 +597,7 @@ module Processor (
 
   DatapathPipelined datapath (
     .clk                  (clk),
-    .rst                  (rst),
+    .rst                  (rst_syn),
     .pc_to_imem           (pc_to_imem),
     .inst_from_imem       (inst_from_imem),
     .addr_to_dmem         (mem_data_addr),
@@ -589,8 +605,7 @@ module Processor (
     .store_we_to_dmem     (mem_data_we),
     .load_data_from_dmem  (mem_data_loaded_value),
     .halt                 (halt),
-    .trace_writeback_pc   (),
-    .trace_writeback_inst ()
+    .error                (error)
   );
 
 endmodule

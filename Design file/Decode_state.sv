@@ -37,8 +37,8 @@ module RegFile (
     end
     always_comb // Read assyn -> read the newest data to X pipelined
     begin
-        rs1_data = regs[rs1] ;
-        rs2_data = regs[rs2] ;
+        rs1_data = ((rs1 == rd) && we && (|rd)) ? rd_data : regs[rs1] ;
+        rs2_data = ((rs2 == rd) && we && (|rd)) ? rd_data : regs[rs2] ;
     end
 endmodule
 
@@ -286,6 +286,10 @@ module x_control_pipelined (
         output logic [1:0] o_inst_branch,
         output logic [1:0] o_inst_jump
 );
+    (* max_fanout = 16 *) logic is_lui_reg ;
+    (* max_fanout = 16 *) logic alu_operand2_reg ;
+    (* max_fanout = 16 *) logic [1:0] inst_jump_reg ;
+
     always_ff @(posedge clk)
     begin
         if(rst || nops)
@@ -293,27 +297,34 @@ module x_control_pipelined (
             o_store_control <= 2'b11 ;
             o_load_control  <= 3'b0 ;
             o_is_div        <= 1'b0 ;
-            o_is_lui        <= 1'b0 ;
+            is_lui_reg        <= 1'b0 ;
             o_rd_we         <= 1'b0 ;
             o_rd_in_choose  <= 2'b0 ;
             o_alu_op        <= 2'b0 ;
-            o_alu_operand2  <= 1'b0 ;
+            alu_operand2_reg  <= 1'b0 ;
             o_inst_branch   <= 2'b0 ;
-            o_inst_jump     <= 2'b0 ;
+            inst_jump_reg     <= 2'b0 ;
         end
         else
         begin
             o_store_control <= i_store_control ;
             o_load_control  <= i_load_control ;
             o_is_div        <= i_is_div ;
-            o_is_lui        <= i_is_lui ;
+            is_lui_reg        <= i_is_lui ;
             o_rd_we         <= i_rd_we ;
             o_rd_in_choose  <= i_rd_in_choose ;
             o_alu_op        <= i_alu_op ;
-            o_alu_operand2  <= i_alu_operand2 ;
+            alu_operand2_reg  <= i_alu_operand2 ;
             o_inst_branch   <= i_inst_branch ;
-            o_inst_jump     <= i_inst_jump ;
+            inst_jump_reg     <= i_inst_jump ;
         end
+    end
+
+    always_comb
+    begin
+        o_is_lui = is_lui_reg ;
+        o_alu_operand2 = alu_operand2_reg ;
+        o_inst_jump = inst_jump_reg ;
     end
 endmodule
 

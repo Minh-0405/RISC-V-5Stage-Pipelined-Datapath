@@ -11,6 +11,40 @@
 
 `define DIVIDER_STAGES 8
 
+// module Store_control(
+//         input logic [`REG_SIZE:0] rs1,
+//         input logic [`REG_SIZE:0] imm,
+//         input  logic [2:0] store_control,
+//         input  logic [`REG_SIZE:0] input_data,
+//         output logic [`REG_SIZE:0] store_data,
+//         output logic [3:0] store_we,
+//         output logic store_error
+// );
+//     logic [`REG_SIZE:0] store_addr ;
+//     assign store_addr = rs1 + imm ;
+//     logic [3:0] we_sb ;
+//     logic [3:0] we_sh ;
+//     logic [3:0] we_sw ;
+//     logic s_misalign ;
+//     assign s_misalign = (store_control[1] && store_addr[0])
+//                         || (store_control[2] && |store_addr[1:0]) ;
+//     always_comb begin
+//         we_sb = (store_control[0])? (4'b0001 << store_addr[1:0]) : 4'b0 ;
+//         we_sh = (store_control[1])? (4'b0011 << {store_addr[1], 1'b0}) : 4'b0 ;
+//         we_sw = (store_control[2])? 4'b1111 : 4'b0 ;
+//         store_we = {4{~(s_misalign)}} & (we_sb ^ we_sh ^ we_sw) ;
+//         store_error = s_misalign ;
+//     end
+
+//     always_comb begin
+//         unique case (store_control)
+//             3'b001: store_data = {4{input_data[7:0]}} ;
+//             3'b010: store_data = {2{input_data[15:0]}} ;
+//             3'b100: store_data = input_data ;
+//             default: store_data = 32'b0 ;
+//         endcase
+//     end
+// endmodule
 
 module Load_value(
         input  logic [1:0] load_bytes,
@@ -69,7 +103,6 @@ module Store_control (
         output logic [3:0] store_we,
         output logic store_error
 );
-    //
     always_comb
     begin
         store_error = 1'b0 ;
@@ -145,18 +178,20 @@ module w_control_pipelined(
         output logic o_rd_we,
         output logic [1:0] o_rd_choose
 );
+    (* max_fanout = 16 *) logic [1:0] rd_choose_reg ;
     always_ff @(posedge clk)
     begin
         if(rst)
         begin
             o_rd_we     <= 1'b0 ;
-            o_rd_choose <= 2'b0 ;
+            rd_choose_reg <= 2'b0 ;
         end
         else
         begin
             o_rd_we     <= i_rd_we ;
-            o_rd_choose <= i_rd_choose ;
+            rd_choose_reg <= i_rd_choose ;
         end
     end
+    assign o_rd_choose = rd_choose_reg ;
 endmodule
 

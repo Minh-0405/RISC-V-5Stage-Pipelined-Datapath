@@ -7,15 +7,11 @@ module DatapathPipelined_tb() ;
     logic clk ;
     logic rst ;
     logic halt ;
-    logic [ `REG_SIZE:0] trace_writeback_pc ;
-    logic [`INST_SIZE:0] trace_writeback_inst ;
 
     Processor dut (
         .clk(clk),
         .rst(rst),
-        .halt(halt),
-        .trace_writeback_pc(trace_writeback_pc),
-        .trace_writeback_inst(trace_writeback_inst)
+        .halt(halt)
     );
     // preload instructions to mem_array
     // initial begin
@@ -81,7 +77,7 @@ module DatapathPipelined_tb() ;
 
          // --- EXECUTION ---
          rst = 1'b1; clock(2); rst = 1'b0;
-         clock(25);
+         clock(16);
          // 1. Verify LUI + ADDI
          expect_rf(32'h12345123, 1);
          // 2. Verify Shifts (SLLI, SRLI)
@@ -137,7 +133,7 @@ module DatapathPipelined_tb() ;
 
          // --- EXECUTION ---
          rst = 1'b1; clock(2); rst = 1'b0;
-         clock(30); // Allow cycles for all instructions
+         clock(20); // Allow cycles for all instructions
 
          // --- VERIFICATION ---
          expect_rf(32'h00000001, 16); // slti
@@ -162,7 +158,7 @@ module DatapathPipelined_tb() ;
          dut.memory.mem_array[4] = 32'h00100513; // addi x10, x0, 1   (x10 = 1 / FAIL / TRAP)
          dut.memory.mem_array[5] = 32'h00000013; // nop               (Landing spot)
          rst = 1'b1; clock(2); rst = 1'b0;
-         clock(15);
+         clock(16);
          expect_rf(0, 10); // Expect x10 to be 0 (Branch taken)
          clear_imem(6);
 
