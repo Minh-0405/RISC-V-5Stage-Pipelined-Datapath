@@ -15,6 +15,7 @@
 //`include "Execute_state.sv"
 //`include "Mem_state.sv"
 //`include "Hazard_resolution.sv"
+//`include "Branch_unit.sv"
 
 
 module f_pipelined (
@@ -101,14 +102,13 @@ module DatapathPipelined
     logic [`REG_SIZE:0] rs1_data, rs2_data ;
     logic [`REG_SIZE:0] rd_in ;
     logic [`REG_SIZE:0] imm_operand ;
-    logic [1:0] store_control ;
+    logic [2:0] store_control ;
     logic [2:0] load_control ;
-    logic [1:0] alu_op;
     logic [1:0] rd_choose ;
     logic op2_choose ;
     logic is_lui ;
     logic rd_we ;
-    logic [1:0] branch_control ;
+    logic [3:0] branch_control ;
     logic [1:0] jump ;
     logic is_load ;
     logic [1:0] rd_choose_fromX ;
@@ -116,9 +116,8 @@ module DatapathPipelined
     logic [`REG_SIZE:0] rs1_fromX ;
     logic [`REG_SIZE:0] rs2_fromX ;
     logic [`REG_SIZE:0] imm_fromX ;
-    logic [1:0] store_control_fromX ;
+    logic [2:0] store_control_fromX ;
     logic [2:0] load_control_fromX ;
-    logic [1:0] aluop_fromX;
     logic [3:0] alu_control_fromX ;
     logic [4:0] rs1_addr ;
     logic [4:0] rs2_addr ;
@@ -126,7 +125,7 @@ module DatapathPipelined
     logic is_div_fromX ;
     logic is_lui_fromX ;
     logic rd_we_fromX ;
-    logic [1:0] branch_fromX ;
+    logic [3:0] branch_fromX ;
     logic [1:0] jump_fromX ;
     logic [`REG_SIZE:0] tmp_pc ;
     logic [`REG_SIZE:0] base_addr ;
@@ -142,18 +141,21 @@ module DatapathPipelined
     logic [`REG_SIZE:0] m_alu_out ;
     logic [`REG_SIZE:0] tmp_aluout ;
     logic [`REG_SIZE:0] ex_data ;
+    logic [`REG_SIZE:0] lui_data_fromM ;
+    logic is_lui_fromM ;
     logic is_div ;
     logic b_cond ;
     logic b_cond_fromM ;
     logic jump_fromM ;
-    logic [1:0] branch_fromM ;
+    logic branch_fromM ;
     logic s_bypass_ex ;
+    logic [1:0] load_byte ;
+    logic [1:0] load_byte_fromM ;
     logic [`REG_SIZE:0] s_data_ex ;
     logic [`INST_SIZE:0] ra_fromM ;
     logic [`REG_SIZE:0] rs2_data_fromM ;
     logic [4:0] rs2_addr_fromM ;
     logic [2:0] load_control_fromM ;
-    logic [1:0] store_control_fromM ;
     logic [`REG_SIZE:0] load_value ;
     logic s_bypass_mem ;
     logic [`REG_SIZE:0] s_data ;
@@ -218,9 +220,8 @@ module DatapathPipelined
       .is_lui(is_lui),
       .rd_in_choose(rd_choose),
       .rd_we(rd_we),
-      .alu_op(alu_op),
       .alu_operand2(op2_choose),
-      .inst_branch(branch_control),
+      .branch(branch_control),
       .jump(jump),
       .invalid_decode(invalid_decode),
       .halt(halt)
@@ -228,7 +229,7 @@ module DatapathPipelined
     assign e[3] = invalid_decode ; //illegal_inst
 
     assign is_load = (rd_choose_fromX == 2'b01) ;
-    load_stall load_stall(
+    load_stall load_stall( 
       .is_load(is_load),
       .rs1(inst_rs1),
       .rs2(inst_rs2),
@@ -280,7 +281,6 @@ module DatapathPipelined
       .i_is_lui(is_lui),
       .i_rd_we(rd_we),
       .i_rd_in_choose(rd_choose),
-      .i_alu_op(alu_op),
       .i_alu_operand2(op2_choose),
       .i_inst_branch(branch_control),
       .i_inst_jump(jump),
@@ -290,7 +290,6 @@ module DatapathPipelined
       .o_is_lui(is_lui_fromX),
       .o_rd_we(rd_we_fromX),
       .o_rd_in_choose(rd_choose_fromX),
-      .o_alu_op(aluop_fromX),
       .o_alu_operand2(op2_choose_fromX),
       .o_inst_branch(branch_fromX),
       .o_inst_jump(jump_fromX)
@@ -299,15 +298,6 @@ module DatapathPipelined
     /*****************/
     /* EXECUTE STAGE */
     /*****************/
-
-    alu_control AluControl(
-      .opcode(aluop_fromX),
-      .control(alu_control_fromX),
-      .operation(alu_operation),
-      .sub_control(is_sub),
-      .sra_control(is_sra),
-      .branch_control(b_type)
-    );
 
     detect_ExForwarding bypassing_ex (
       .we({rd_we_fromW, rd_we_fromM}),
@@ -322,7 +312,7 @@ module DatapathPipelined
     choice_operand op1(
       .op_control(op1_control),
       .rs(rs1_fromX),
-      .mem_forward(aluout_fromM),
+      .mem_forward(ex_data),
       .wb_forward(rd_in),
       .operand(operand1)
     );
@@ -330,14 +320,15 @@ module DatapathPipelined
     choice_operand op2(
       .op_control(op2_control),
       .rs(rs2_fromX),
-      .mem_forward(aluout_fromM),
+      .mem_forward(ex_data),
       .wb_forward(rd_in),
       .operand(base_op2)
     );
     assign operand2 = (op2_choose_fromX)? imm_fromX : base_op2 ;
 
+    // base_addr is pc for branch and jal /  rs1 for jalr
     assign base_addr = (jump_fromX[1])? operand1 : pc_fromX ;
-    cla branch_pc (
+    cla Br_Adress (
         .a(base_addr),
         .b(imm_fromX),
         .sum(tmp_pc),
@@ -348,16 +339,20 @@ module DatapathPipelined
     assign pc_branch = {tmp_pc[31:1], 1'b0} ;
     assign return_addr = pc_fromX + 4 ;
 
+    Branch_condition Br_Unit(
+        .branch_control(branch_fromX[3:1]),
+        .rs1(operand1),
+        .rs2(operand2),
+        .b_cond(b_cond)
+    );
+
     ALUs ALU(
       .rst(rst),
+      .inst_type(op2_choose_fromX),
       .rs1(operand1),
       .rs2(operand2),
-      .control(alu_operation),
-      .sub_control(is_sub),
-      .sra_control(is_sra),
-      .branch_control(b_type),
-      .alu_out(alu_out),
-      .b_cond(b_cond)
+      .control(alu_control_fromX),
+      .alu_out(alu_out)
     );
 
     // M_ALUs M_ALU(
@@ -370,27 +365,32 @@ module DatapathPipelined
     // );
 
     //assign tmp_aluout = (delay_ctrl.done)? m_alu_out : alu_out ;
-    assign ex_data = (is_lui_fromX)? imm_fromX : alu_out ;
 
-    detect_MemForwarding store_bypassing_ex(
-      .w_we(rd_we_fromW),
-      .w_rd(rd_fromW),
-      .m_rs2(rs2_addr),
-      .control(s_bypass_ex)
+    Input_Mem_control Input_Dmem(
+      .rs1(operand1),
+      .imm(imm_fromX),
+      .store_control(store_control_fromX),
+      .input_data(operand2),
+      .addr_to_dmem(addr_to_dmem),
+      .store_data(store_data_to_dmem),
+      .store_we(store_we_to_dmem),
+      .load_byte(load_byte),
+      .store_error(e[2])
     );
-    assign s_data_ex = (s_bypass_ex)? rd_in : rs2_fromX ;
 
     m_pipelined M(
       .clk(clk), .rst(rst),
       .i_pc_branch(pc_branch),
-      .i_aluout(ex_data),
-      .i_rs2_data(s_data_ex),
+      .i_aluout(alu_out),
+      .i_load_byte(load_byte),
+      .i_lui_data(imm_fromX),
       .i_rs2_addr(rs2_addr),
       .i_rd((delay_ctrl.done)? delay_ctrl.rd : rd_fromX),
       .i_ra(return_addr),
       .o_pc_branch(pc_branch_fromM),
       .o_aluout(aluout_fromM),
-      .o_rs2_data(rs2_data_fromM),
+      .o_load_byte(load_byte_fromM),
+      .o_lui_data(lui_data_fromM),
       .o_rs2_addr(rs2_addr_fromM),
       .o_rd(rd_fromM),
       .o_ra(ra_fromM)
@@ -401,17 +401,17 @@ module DatapathPipelined
       .nops(is_branch),
       .is_div(is_div_fromX),
       .div_ctrl(delay_ctrl),
+      .i_is_lui(is_lui_fromX),
       .i_b_cond(b_cond),
       .i_jump(jump_fromX[0]),
-      .i_branch(branch_fromX),
-      .i_store_control(store_control_fromX),
+      .i_branch(branch_fromX[0]),
       .i_load_control(load_control_fromX),
       .i_rd_we(rd_we_fromX),
       .i_rd_in_choose(rd_choose_fromX),
+      .o_is_lui(is_lui_fromM),
       .o_b_cond(b_cond_fromM),
       .o_jump(jump_fromM),
       .o_branch(branch_fromM),
-      .o_store_control(store_control_fromM),
       .o_load_control(load_control_fromM),
       .o_rd_we(rd_we_fromM),
       .o_rd_in_choose(rd_choose_fromM)
@@ -420,34 +420,18 @@ module DatapathPipelined
     /****************/
     /* MEMORY STAGE */
     /****************/
-    branch_condition detect_branch(
+
+    assign ex_data = (is_lui_fromM)? lui_data_fromM : aluout_fromM ;
+
+    Detect_branch detect_branch(
       .b_cond(b_cond_fromM),
       .inst_jump(jump_fromM),
       .inst_branch(branch_fromM),
       .is_branch(is_branch)
     );
 
-    assign addr_to_dmem = aluout_fromM ;
-
-    detect_MemForwarding store_bypassing_mem(
-      .w_we(rd_we_fromW),
-      .w_rd(rd_fromW),
-      .m_rs2(rs2_addr_fromM),
-      .control(s_bypass_mem)
-    );
-    assign s_data = (s_bypass_mem)? rd_in : rs2_data_fromM ;
-
-    Store_control modify_input_dmem(
-      .store_bytes(aluout_fromM[1:0]),
-      .store_control(store_control_fromM),
-      .input_data(s_data),
-      .store_data(store_data_to_dmem),
-      .store_we(store_we_to_dmem),
-      .store_error(e[2])
-    );
-
     Load_value modify_load_value(
-      .load_bytes(aluout_fromM[1:0]),
+      .load_bytes(load_byte_fromM),
       .load_control(load_control_fromM),
       .load_from_dmem(load_data_from_dmem),
       .load_value(load_value),
@@ -456,7 +440,7 @@ module DatapathPipelined
 
     w_pipelined W(
       .clk(clk), .rst(rst),
-      .i_aluout(aluout_fromM),
+      .i_aluout(ex_data),
       .i_load_value(load_value),
       .i_ra(ra_fromM),
       .i_rd(rd_fromM),
@@ -521,10 +505,9 @@ module DataMemory #(
       if (store_we_to_dmem[3]) begin
         mem_array[addr_to_dmem[AddrMsb:AddrLsb]][31:24] <= store_data_to_dmem[31:24];
       end
+      load_data_from_dmem <= mem_array[addr_to_dmem[AddrMsb:AddrLsb]];
     end
   end
-  // dmem read asynchronously
-  assign load_data_from_dmem = mem_array[addr_to_dmem[AddrMsb:AddrLsb]];
 endmodule
 
 module InstMemory #(
@@ -539,9 +522,10 @@ module InstMemory #(
   // memory is arranged as an array of 4B words
   logic [`REG_SIZE:0] mem_array [NUM_WORDS];
   //preload instructions to mem_array
-   initial begin
-     $readmemh("mem_initial_contents.hex", mem_array);
-   end
+//   initial begin
+//     $readmemh("mem_initial_contents.hex", mem_array);
+//   end
+   
   localparam int AddrMsb = $clog2(NUM_WORDS) + 1;
   localparam int AddrLsb = 2;
 
@@ -558,7 +542,7 @@ module Processor (
     output                error
 );
 
-  (* max_fanout = 16 *) logic [ `REG_SIZE:0] rst_syn ;
+  (* max_fanout = 16 *) logic rst_syn ;
   always_ff @(posedge clk)
   begin
     rst_syn <= rst ;

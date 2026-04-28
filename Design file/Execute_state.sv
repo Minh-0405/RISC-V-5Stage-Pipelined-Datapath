@@ -37,66 +37,17 @@
 //    assign out = ~tmp ;
 // endmodule
 
-module alu_control(
-    input [1:0] opcode,
-    input [3:0] control, // {inst[30], inst[14:12]}
-    output logic [2:0] operation,
-    output logic sub_control,
-    output logic sra_control,
-    output logic branch_control
-);
-    localparam logic [1:0] RegReg = 2'b0 ;
-    localparam logic [1:0] RegImm = 2'b01 ;
-    localparam logic [1:0] Branch = 2'b10 ;
-    localparam logic [1:0] StoreLoad = 2'b11 ;
-
-    always_comb
-    begin
-        //default
-        operation = 3'b0 ;
-        sub_control = 1'b0 ;
-        sra_control = 1'b0 ;
-        branch_control = 1'b0 ;
-
-        unique case(opcode)
-            RegReg:        begin
-                operation = control[2:0] ;
-                sub_control = control[3] ;
-                sra_control = control[3] ;
-            end
-            RegImm:      begin
-                operation = control[2:0] ;
-                sra_control = control[3] ;
-            end
-            Branch:     begin
-                if(control[2] == 0) // beq/bne -> sub
-                begin
-                    operation = 3'b0 ;
-                    sub_control = 1'b1 ;
-                    branch_control = 1'b0 ;
-                end
-                else begin // slt
-                    operation[0] = control[1] ; // signed control bit
-                    operation[2:1] = 2'b01 ;
-                    branch_control = 1'b1 ;
-                end
-            end
-            StoreLoad:  begin // add to calculate address
-                operation = 3'b0 ;
-            end
-            default: ;
-        endcase
-    end
-endmodule
-
 module ALUs (
         input  logic rst,
         input  logic [`REG_SIZE:0] rs1, rs2,
-        input  logic [2:0] control,
-        input  logic sub_control, sra_control, branch_control,
-        output logic [`REG_SIZE:0] alu_out,
-        output logic b_cond
+        input  logic inst_type, // 0: R-type ; 1: I-type
+        input  logic [3:0] control,
+        output logic [`REG_SIZE:0] alu_out
 );
+    logic sub_control ;
+    logic sra_control ;
+    assign sub_control = ~inst_type && control[3] ;
+    assign sra_control = control[3] ;
 
     logic [`REG_SIZE:0] data2;
     logic [`REG_SIZE:0] adder_out;
@@ -133,7 +84,7 @@ module ALUs (
 
     always_comb
     begin
-    unique case (control)
+    unique case (control[2:0])
         3'b000:  begin // ADD, SUB
             alu_out = alu_add_sub ;
         end
@@ -161,7 +112,6 @@ module ALUs (
         default: alu_out = 32'b0 ;
     endcase
     end
-    assign b_cond = (branch_control)? alu_out[0] : !(|alu_out) ;
 endmodule
 
 // module M_ALUs (
@@ -271,40 +221,24 @@ endmodule
 //    end
 // endmodule
 
-module branch_condition(
-        input  logic b_cond,
-        input  logic inst_jump,
-        input  logic [1:0] inst_branch, //inst_branch[1] = inst[12]
-        output logic is_branch
-);
-    (* max_fanout = 16 *) logic is_branch_reg ;
-    always_comb
-    begin
-        if(inst_jump) is_branch_reg = 1'b1 ;
-        else
-        begin
-            is_branch_reg = (inst_branch[0] && (inst_branch[1] ^ b_cond))? 1'b1 : 1'b0 ;
-        end
-    end
-    assign is_branch = is_branch_reg ;
-endmodule
-
 module m_pipelined(
         input clk, rst,
         input  logic [`REG_SIZE:0] i_pc_branch,
         input  logic [`REG_SIZE:0] i_aluout,
-        input  logic [`REG_SIZE:0] i_rs2_data,
+        input  logic [1:0]         i_load_byte,
+        input  logic [`REG_SIZE:0] i_lui_data,
         input  logic [4:0]         i_rs2_addr,
         input  logic [4:0]         i_rd,
         input  logic [`INST_SIZE:0]i_ra,
         output logic [`REG_SIZE:0] o_pc_branch,
         output logic [`REG_SIZE:0] o_aluout,
-        output logic [`REG_SIZE:0] o_rs2_data,
+        output logic [1:0]         o_load_byte,
+        output logic [`REG_SIZE:0] o_lui_data,
         output logic [4:0]         o_rs2_addr,
         output logic [4:0]         o_rd,
         output logic [`INST_SIZE:0]o_ra
 );
-    (* max_fanout = 16 *) logic aluout_reg ;
+    (* max_fanout = 16 *) logic [`REG_SIZE:0] aluout_reg ;
 
     always_ff @(posedge clk)
     begin
@@ -312,7 +246,8 @@ module m_pipelined(
         begin
             o_pc_branch   <= 32'b0 ;
             aluout_reg    <= 32'b0 ;
-            o_rs2_data    <= 32'b0 ;
+            o_load_byte   <= 2'b0 ;
+            o_lui_data    <= 32'b0 ;
             o_rs2_addr    <= 5'b0 ;
             o_rd          <= 5'b0 ;
             o_ra          <= 32'b0 ;
@@ -321,7 +256,8 @@ module m_pipelined(
         begin
             o_pc_branch   <= i_pc_branch ;
             aluout_reg    <= i_aluout ;
-            o_rs2_data    <= i_rs2_data ;
+            o_load_byte   <= i_load_byte ;
+            o_lui_data    <= i_lui_data ;
             o_rs2_addr    <= i_rs2_addr ;
             o_rd          <= i_rd ;
             o_ra          <= i_ra ;
@@ -335,32 +271,31 @@ module m_control_pipelined(
         input  logic nops,
         input  logic is_div,
         input  div_control_t div_ctrl,
+        input  logic i_is_lui,
         input  logic i_b_cond,
         input  logic i_jump,
-        input  logic [1:0] i_branch,
-        input  logic [1:0] i_store_control,
+        input  logic i_branch,
         input  logic [2:0] i_load_control,
         input  logic       i_rd_we,
         input  logic [1:0] i_rd_in_choose,
+        output logic o_is_lui,
         output logic o_b_cond,
         output logic o_jump,
-        output logic [1:0] o_branch,
-        output logic [1:0] o_store_control,
+        output logic o_branch,
         output logic [2:0] o_load_control,
         output logic       o_rd_we,
         output logic [1:0] o_rd_in_choose
 );
-    (* max_fanout = 16 *) logic [1:0] store_control_reg ;
     (* max_fanout = 16 *) logic [2:0] load_control_reg ;
 
     always_ff @(posedge clk)
     begin
         if(rst | is_div | nops)
         begin
+            o_is_lui       <= 1'b0 ;
             o_b_cond       <= 1'b0 ;
             o_jump         <= 1'b0 ;
-            o_branch       <= 2'b0 ;
-            store_control_reg <= 2'b11 ;
+            o_branch       <= 1'b0 ;
             load_control_reg <= 3'b0 ;
             o_rd_we        <= 1'b0 ;
             o_rd_in_choose <= 2'b0 ;
@@ -369,17 +304,17 @@ module m_control_pipelined(
         begin
             if(div_ctrl.done)
             begin
+                o_is_lui       <= 1'b0 ;
                 o_b_cond       <= 1'b0 ;
                 o_jump         <= 1'b0 ;
-                o_branch       <= 2'b0 ;
-                store_control_reg <= 2'b11 ;
+                o_branch       <= 1'b0 ;
                 load_control_reg <= 3'b0 ;
                 o_rd_we        <= div_ctrl.rd_we ;
                 o_rd_in_choose <= div_ctrl.rd_in_choose ;
             end
             else
             begin
-                store_control_reg <= i_store_control ;
+                o_is_lui       <= i_is_lui ;
                 load_control_reg <= i_load_control ;
                 o_rd_we        <= i_rd_we ;
                 o_rd_in_choose <= i_rd_in_choose ;
@@ -389,6 +324,5 @@ module m_control_pipelined(
             end
         end
     end
-    assign o_store_control = store_control_reg ;
     assign o_load_control = load_control_reg ;
 endmodule

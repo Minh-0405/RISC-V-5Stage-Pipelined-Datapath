@@ -97,25 +97,18 @@ module Control_unit
     import riscv_pkg::* ;
 (
         input  logic [`REG_SIZE:0] inst,
-        output logic [1:0] store_control,
+        output logic [2:0] store_control,
         output logic [2:0] load_control,
         output logic is_div,
         output logic is_lui,
         output logic rd_we,
         output logic [1:0] rd_in_choose,
-        output logic [1:0] alu_op,
         output logic alu_operand2,
-        output logic [1:0] inst_branch,
+        output logic [3:0] branch,
         output logic [1:0] jump,
         output logic invalid_decode,
         output logic halt
 );
-    // alu_op
-    localparam logic [1:0] RegReg = 2'b00 ;
-    localparam logic [1:0] RegImm = 2'b01 ;
-    localparam logic [1:0] Branch = 2'b10 ;
-    localparam logic [1:0] StoreLoad = 2'b11 ;
-
     // alu_operand2
     localparam logic Imme = 1'b1 ;
     localparam logic Rs2 = 1'b0 ;
@@ -132,7 +125,7 @@ module Control_unit
     // first bit 1 for unsigned; remain bit stand for number of bytes load
 
     // branch
-    // first bit is for detect type; second bit is for detect if it is a branch inst
+    // last bit detect if the inst is branch \  remain bit for branch type
 
     //jump
     localparam logic [1:0] Jal  = 2'b01 ;
@@ -143,16 +136,15 @@ module Control_unit
         //default
         halt = 1'b0 ;
         invalid_decode = 1'b0 ;
-        store_control = 2'b11 ;
+        store_control = 3'b000 ;
         load_control = 3'b0 ;
         is_div = 1'b0 ;
         is_lui = 1'b0 ;
         rd_we = 1'b0 ;
         rd_in_choose = AluOut ;
-        inst_branch = 2'b0 ;
+        branch = 4'b0 ;
         jump = 2'b0 ;
-        alu_op = RegReg ;
-        alu_operand2 = Imme ;
+        alu_operand2 = Rs2 ;
 
         unique case(inst[6:0])
             OpLui:      begin
@@ -161,45 +153,40 @@ module Control_unit
                 rd_we = 1'b1 ;
             end
             OpRegReg:   begin
-                alu_op = RegReg ;
                 alu_operand2 = Rs2 ;
                 rd_in_choose = AluOut ;
                 rd_we = 1'b1 ;
                 is_div = (inst[25] == 1) ;
             end
             OpRegImm:   begin
-                alu_op = RegImm ;
                 alu_operand2 = Imme ;
                 rd_in_choose = AluOut ;
                 rd_we = 1'b1 ;
             end
             OpBranch:   begin
-                alu_op = Branch ;
                 alu_operand2 = Rs2 ;
-                inst_branch = {inst[12], 1'b1} ;
+                branch = {inst[14:12], 1'b1} ;
             end
             OpJal:      begin
-                alu_op = RegReg ;
-                alu_operand2 = Rs2 ;
                 rd_in_choose = Ra ;
                 rd_we = 1'b1 ;
                 jump = Jal ;
             end
             OpJalr:     begin
-                alu_op = RegReg ;
-                alu_operand2 = Imme ;
                 rd_in_choose = Ra ;
                 rd_we = 1'b1 ;
                 jump = Jalr ;
             end
             OpStore:    begin
-                store_control = inst[13:12] ;
-                alu_op = StoreLoad ;
-                alu_operand2 = Imme ;
+                alu_operand2 = Rs2 ;
+                unique case(inst[13:12])
+                    2'b00: store_control = 3'b001 ; //sb
+                    2'b01: store_control = 3'b010 ; //sh
+                    2'b10: store_control = 3'b100 ; //sw
+                    default: store_control = 3'b000 ;
+                endcase
             end
             OpLoad:     begin
-                alu_op = StoreLoad ;
-                alu_operand2 = Imme ;
                 load_control = inst[14:12] ;
                 rd_in_choose = Dmem ;
                 rd_we = 1'b1 ;
@@ -265,25 +252,23 @@ endmodule
 
 module x_control_pipelined (
         input  logic clk, rst, nops,
-        input  logic [1:0] i_store_control,
+        input  logic [2:0] i_store_control,
         input  logic [2:0] i_load_control,
         input  logic       i_is_div,
         input  logic       i_is_lui,
         input  logic       i_rd_we,
         input  logic [1:0] i_rd_in_choose,
-        input  logic [1:0] i_alu_op,
         input  logic       i_alu_operand2,
-        input  logic [1:0] i_inst_branch,
+        input  logic [3:0] i_inst_branch,
         input  logic [1:0] i_inst_jump,
-        output logic [1:0] o_store_control,
+        output logic [2:0] o_store_control,
         output logic [2:0] o_load_control,
         output logic       o_is_div,
         output logic       o_is_lui,
         output logic       o_rd_we,
         output logic [1:0] o_rd_in_choose,
-        output logic [1:0] o_alu_op,
         output logic       o_alu_operand2,
-        output logic [1:0] o_inst_branch,
+        output logic [3:0] o_inst_branch,
         output logic [1:0] o_inst_jump
 );
     (* max_fanout = 16 *) logic is_lui_reg ;
@@ -294,15 +279,14 @@ module x_control_pipelined (
     begin
         if(rst || nops)
         begin
-            o_store_control <= 2'b11 ;
+            o_store_control <= 3'b000 ;
             o_load_control  <= 3'b0 ;
             o_is_div        <= 1'b0 ;
             is_lui_reg        <= 1'b0 ;
             o_rd_we         <= 1'b0 ;
             o_rd_in_choose  <= 2'b0 ;
-            o_alu_op        <= 2'b0 ;
             alu_operand2_reg  <= 1'b0 ;
-            o_inst_branch   <= 2'b0 ;
+            o_inst_branch   <= 4'b0 ;
             inst_jump_reg     <= 2'b0 ;
         end
         else
@@ -313,7 +297,6 @@ module x_control_pipelined (
             is_lui_reg        <= i_is_lui ;
             o_rd_we         <= i_rd_we ;
             o_rd_in_choose  <= i_rd_in_choose ;
-            o_alu_op        <= i_alu_op ;
             alu_operand2_reg  <= i_alu_operand2 ;
             o_inst_branch   <= i_inst_branch ;
             inst_jump_reg     <= i_inst_jump ;

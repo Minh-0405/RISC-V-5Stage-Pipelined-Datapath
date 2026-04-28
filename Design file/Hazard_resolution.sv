@@ -61,16 +61,6 @@ module detect_ExForwarding(
     end
 endmodule
 
-module detect_MemForwarding(
-        input  logic w_we,
-        input  logic [4:0] w_rd,
-        input  logic [4:0] m_rs2,
-        output logic control
-);
-    //control: 0: rs2_data ; 1: Forwarding
-    assign control = (w_we == 1) && (w_rd == m_rs2) && (w_rd != 0) ;
-endmodule
-
 module load_stall(
         input  logic is_load,
         input  logic [4:0] rs1, rs2,
