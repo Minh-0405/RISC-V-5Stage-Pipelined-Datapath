@@ -99,7 +99,7 @@ module Control_unit
         input  logic [`REG_SIZE:0] inst,
         output logic [2:0] store_control,
         output logic [2:0] load_control,
-        output logic is_div,
+        output logic is_div_mul,
         output logic is_lui,
         output logic rd_we,
         output logic [1:0] rd_in_choose,
@@ -138,7 +138,7 @@ module Control_unit
         invalid_decode = 1'b0 ;
         store_control = 3'b000 ;
         load_control = 3'b0 ;
-        is_div = 1'b0 ;
+        is_div_mul = 1'b0 ;
         is_lui = 1'b0 ;
         rd_we = 1'b0 ;
         rd_in_choose = AluOut ;
@@ -156,7 +156,7 @@ module Control_unit
                 alu_operand2 = Rs2 ;
                 rd_in_choose = AluOut ;
                 rd_we = 1'b1 ;
-                is_div = (inst[25] == 1) ;
+                is_div_mul = (inst[25] == 1'b1) ;
             end
             OpRegImm:   begin
                 alu_operand2 = Imme ;
@@ -254,7 +254,7 @@ module x_control_pipelined (
         input  logic clk, rst, nops,
         input  logic [2:0] i_store_control,
         input  logic [2:0] i_load_control,
-        input  logic       i_is_div,
+        input  logic       i_is_div_mul,
         input  logic       i_is_lui,
         input  logic       i_rd_we,
         input  logic [1:0] i_rd_in_choose,
@@ -263,7 +263,7 @@ module x_control_pipelined (
         input  logic [1:0] i_inst_jump,
         output logic [2:0] o_store_control,
         output logic [2:0] o_load_control,
-        output logic       o_is_div,
+        output logic       o_is_div_mul,
         output logic       o_is_lui,
         output logic       o_rd_we,
         output logic [1:0] o_rd_in_choose,
@@ -281,7 +281,7 @@ module x_control_pipelined (
         begin
             o_store_control <= 3'b000 ;
             o_load_control  <= 3'b0 ;
-            o_is_div        <= 1'b0 ;
+            o_is_div_mul    <= 1'b0 ;
             is_lui_reg        <= 1'b0 ;
             o_rd_we         <= 1'b0 ;
             o_rd_in_choose  <= 2'b0 ;
@@ -293,7 +293,7 @@ module x_control_pipelined (
         begin
             o_store_control <= i_store_control ;
             o_load_control  <= i_load_control ;
-            o_is_div        <= i_is_div ;
+            o_is_div_mul    <= i_is_div_mul ;
             is_lui_reg        <= i_is_lui ;
             o_rd_we         <= i_rd_we ;
             o_rd_in_choose  <= i_rd_in_choose ;

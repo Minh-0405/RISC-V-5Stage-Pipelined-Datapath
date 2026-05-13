@@ -9,7 +9,6 @@
 // RV opcodes are 7 bits
 `define OPCODE_SIZE 6
 
-`define DIVIDER_STAGES 8
 
 //`include "Decode_state.sv"
 //`include "Execute_state.sv"
@@ -78,8 +77,9 @@ module DatapathPipelined
     /*******************/
     /* PREPARE SIGNALS */
     /*******************/
-    logic forward_stall ;
+    logic load_stall ;
     logic div_stall ;
+    logic mul_stall ;
     logic rd_we_fromW ;
     logic rd_we_fromM ;
     logic [4:0] rd_fromX ;
@@ -122,7 +122,7 @@ module DatapathPipelined
     logic [4:0] rs1_addr ;
     logic [4:0] rs2_addr ;
     logic op2_choose_fromX ;
-    logic is_div_fromX ;
+    logic is_div_mul_fromX ;
     logic is_lui_fromX ;
     logic rd_we_fromX ;
     logic [3:0] branch_fromX ;
@@ -138,12 +138,23 @@ module DatapathPipelined
     logic [1:0] op1_control ;
     logic [1:0] op2_control ;
     logic [`REG_SIZE:0] alu_out ;
+    logic [`REG_SIZE:0] quotient ;
+    logic [`REG_SIZE:0] remainder ;
+    logic [(`REG_SIZE)*2+1:0] mul_out ;
+    logic [2:0] m_aluout_choose ;
+    logic [`REG_SIZE:0] quotient_fromM ;
+    logic [`REG_SIZE:0] remainder_fromM ;
+    logic [(`REG_SIZE)*2+1:0] mul_out_fromM ;
+    logic [2:0] m_aluout_choose_fromM ;
+    logic [`REG_SIZE:0] neg_quotient ;
+    logic [`REG_SIZE:0] neg_remainder ;
     logic [`REG_SIZE:0] m_alu_out ;
-    logic [`REG_SIZE:0] tmp_aluout ;
+    logic [`REG_SIZE:0] final_ex_data ;
     logic [`REG_SIZE:0] ex_data ;
     logic [`REG_SIZE:0] lui_data_fromM ;
     logic is_lui_fromM ;
-    logic is_div ;
+    logic is_div_mul ;
+    logic div_mul ;
     logic b_cond ;
     logic b_cond_fromM ;
     logic jump_fromM ;
@@ -176,7 +187,7 @@ module DatapathPipelined
         f_pc_current <= 32'd0;
       end
       else if(is_branch)  f_pc_current <= pc_branch_fromM ;
-      else if(!(forward_stall | div_stall | halt)) f_pc_current <= f_pc_current + 4 ;
+      else if(!(load_stall | div_stall | mul_stall | halt)) f_pc_current <= f_pc_current + 4 ;
     end
     // send PC to imem
     assign pc_to_imem = f_pc_current;
@@ -184,7 +195,7 @@ module DatapathPipelined
     f_pipelined D (
         .clk(clk),
         .rst(rst),
-        .freeze((!is_branch) && ((forward_stall) || (div_stall) || (halt))),
+        .freeze((!is_branch) && ((load_stall) || (div_stall) || (mul_stall) || (halt))),
         .i_pc(f_pc_current),
         .i_inst(inst_from_imem),
         .o_pc(pc_fromD),
@@ -216,7 +227,7 @@ module DatapathPipelined
       .inst(inst_fromD),
       .store_control(store_control),
       .load_control(load_control),
-      .is_div(is_div),
+      .is_div_mul(is_div_mul),
       .is_lui(is_lui),
       .rd_in_choose(rd_choose),
       .rd_we(rd_we),
@@ -229,15 +240,15 @@ module DatapathPipelined
     assign e[3] = invalid_decode ; //illegal_inst
 
     assign is_load = (rd_choose_fromX == 2'b01) ;
-    load_stall load_stall( 
+    load_stall detect_load_stall(
       .is_load(is_load),
       .rs1(inst_rs1),
       .rs2(inst_rs2),
       .ex_rd(rd_fromX),
-      .stall(forward_stall)
+      .stall(load_stall)
     );
 
-    assign ctrl = {is_div, rd_we, inst_rd, rd_choose} ;
+    assign ctrl = {is_div_mul, rd_we, inst_rd, rd_choose} ;
     shift_register Shift_divcontrol(
       .clk(clk),
       .rst(rst),
@@ -245,15 +256,15 @@ module DatapathPipelined
       .rs1(inst_rs1),
       .rs2(inst_rs2),
       .rd(inst_rd),
-      .is_div(is_div),
       .cur_ctrl(ctrl),
       .delay_ctrl(delay_ctrl),
-      .stall(div_stall)
+      .div_stall(div_stall),
+      .mul_stall(mul_stall)
     );
 
     x_pipelined X(
       .clk(clk), .rst(rst),
-      .nops((forward_stall || is_branch || div_stall || halt)),
+      .nops((load_stall || is_branch || div_stall || mul_stall || halt)),
       .i_rs1_data(rs1_data),
       .i_rs2_data(rs2_data),
       .i_imm_data(imm_operand),
@@ -274,10 +285,10 @@ module DatapathPipelined
 
     x_control_pipelined Xcontrol(
       .clk(clk), .rst(rst),
-      .nops((forward_stall || is_branch || div_stall || halt)),
+      .nops((load_stall || is_branch || div_stall || mul_stall || halt)),
       .i_store_control(store_control),
       .i_load_control(load_control),
-      .i_is_div(is_div),
+      .i_is_div_mul(is_div_mul),
       .i_is_lui(is_lui),
       .i_rd_we(rd_we),
       .i_rd_in_choose(rd_choose),
@@ -286,7 +297,7 @@ module DatapathPipelined
       .i_inst_jump(jump),
       .o_store_control(store_control_fromX),
       .o_load_control(load_control_fromX),
-      .o_is_div(is_div_fromX),
+      .o_is_div_mul(is_div_mul_fromX),
       .o_is_lui(is_lui_fromX),
       .o_rd_we(rd_we_fromX),
       .o_rd_in_choose(rd_choose_fromX),
@@ -355,16 +366,17 @@ module DatapathPipelined
       .alu_out(alu_out)
     );
 
-    // M_ALUs M_ALU(
-    //   .clk(clk),
-    //   .rst(rst),
-    //   .rs1(operand1),
-    //   .rs2(operand2),
-    //   .control(alu_control_fromX[2:0]),
-    //   .alu_out(m_alu_out)
-    // );
-
-    //assign tmp_aluout = (delay_ctrl.done)? m_alu_out : alu_out ;
+    M_ALUs M_ALU(
+      .clk(clk),
+      .rst(rst),
+      .rs1(operand1),
+      .rs2(operand2),
+      .control(alu_control_fromX[2:0]),
+      .quot_out(quotient),
+      .rem_out(remainder),
+      .mul_out(mul_out),
+      .m_alu_choose(m_aluout_choose)
+    );
 
     Input_Mem_control Input_Dmem(
       .rs1(operand1),
@@ -382,6 +394,10 @@ module DatapathPipelined
       .clk(clk), .rst(rst),
       .i_pc_branch(pc_branch),
       .i_aluout(alu_out),
+      .i_quotient(quotient),
+      .i_remainder(remainder),
+      .i_mulout(mul_out),
+      .i_m_aluout_choose(m_aluout_choose),
       .i_load_byte(load_byte),
       .i_lui_data(imm_fromX),
       .i_rs2_addr(rs2_addr),
@@ -389,6 +405,10 @@ module DatapathPipelined
       .i_ra(return_addr),
       .o_pc_branch(pc_branch_fromM),
       .o_aluout(aluout_fromM),
+      .o_quotient(quotient_fromM),
+      .o_remainder(remainder_fromM),
+      .o_mulout(mul_out_fromM),
+      .o_m_aluout_choose(m_aluout_choose_fromM),
       .o_load_byte(load_byte_fromM),
       .o_lui_data(lui_data_fromM),
       .o_rs2_addr(rs2_addr_fromM),
@@ -399,7 +419,8 @@ module DatapathPipelined
     m_control_pipelined Mcontrol(
       .clk(clk), .rst(rst),
       .nops(is_branch),
-      .is_div(is_div_fromX),
+      .is_div(is_div_mul_fromX && (alu_control_fromX[2] == 1'b1)),
+      .is_mul(is_div_mul_fromX && (alu_control_fromX[2] == 1'b0)),
       .div_ctrl(delay_ctrl),
       .i_is_lui(is_lui_fromX),
       .i_b_cond(b_cond),
@@ -414,7 +435,8 @@ module DatapathPipelined
       .o_branch(branch_fromM),
       .o_load_control(load_control_fromM),
       .o_rd_we(rd_we_fromM),
-      .o_rd_in_choose(rd_choose_fromM)
+      .o_rd_in_choose(rd_choose_fromM),
+      .div_mul(div_mul)
     );
 
     /****************/
@@ -422,6 +444,30 @@ module DatapathPipelined
     /****************/
 
     assign ex_data = (is_lui_fromM)? lui_data_fromM : aluout_fromM ;
+
+    transform_2_compliment neg_quot(
+      .in(quotient_fromM),
+      .out(neg_quotient)
+    );
+    transform_2_compliment neg_rem(
+      .in(remainder_fromM),
+      .out(neg_remainder)
+    );
+
+    always_comb
+    begin
+      case (m_aluout_choose_fromM)
+        3'b000: m_alu_out = mul_out_fromM[31:0] ;
+        3'b001: m_alu_out = mul_out_fromM[63:32] ;
+        3'b100: m_alu_out = quotient_fromM ;
+        3'b101: m_alu_out = neg_quotient ;
+        3'b110: m_alu_out = remainder_fromM ;
+        3'b111: m_alu_out = neg_remainder ;
+        default: m_alu_out = 32'b0 ;
+      endcase
+    end
+
+    assign final_ex_data = div_mul? m_alu_out : ex_data ;
 
     Detect_branch detect_branch(
       .b_cond(b_cond_fromM),
@@ -440,7 +486,7 @@ module DatapathPipelined
 
     w_pipelined W(
       .clk(clk), .rst(rst),
-      .i_aluout(ex_data),
+      .i_aluout(final_ex_data),
       .i_load_value(load_value),
       .i_ra(ra_fromM),
       .i_rd(rd_fromM),
@@ -522,10 +568,10 @@ module InstMemory #(
   // memory is arranged as an array of 4B words
   logic [`REG_SIZE:0] mem_array [NUM_WORDS];
   //preload instructions to mem_array
-//   initial begin
-//     $readmemh("mem_initial_contents.hex", mem_array);
-//   end
-   
+  initial begin
+    $readmemh("mem_initial_contents.hex", mem_array);
+  end
+
   localparam int AddrMsb = $clog2(NUM_WORDS) + 1;
   localparam int AddrLsb = 2;
 

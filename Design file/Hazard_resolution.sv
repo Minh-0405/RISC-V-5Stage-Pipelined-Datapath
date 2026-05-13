@@ -69,3 +69,4 @@ module load_stall(
 );
     assign stall = (is_load) && ((ex_rd == rs1) || (ex_rd == rs2)) ;
 endmodule
+

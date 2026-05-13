@@ -110,6 +110,7 @@ module w_pipelined(
         output logic [`INST_SIZE:0]o_ra,
         output logic [4:0]         o_rd
 );
+    (* max_fanout = 16 *) logic [4:0] rd_reg ;
     always_ff @(posedge clk)
     begin
         if(rst)
@@ -117,16 +118,17 @@ module w_pipelined(
             o_aluout      <= 32'b0 ;
             o_load_value  <= 32'b0 ;
             o_ra          <= 32'b0 ;
-            o_rd          <= 5'b0 ;
+            rd_reg          <= 5'b0 ;
         end
         else
         begin
             o_aluout      <= i_aluout ;
             o_load_value  <= i_load_value ;
             o_ra          <= i_ra ;
-            o_rd          <= i_rd ;
+            rd_reg          <= i_rd ;
         end
     end
+    assign o_rd = rd_reg ;
 endmodule
 
 module w_control_pipelined(
@@ -137,19 +139,21 @@ module w_control_pipelined(
         output logic [1:0] o_rd_choose
 );
     (* max_fanout = 16 *) logic [1:0] rd_choose_reg ;
+    (* max_fanout = 16 *) logic [4:0] rd_we_reg ;
     always_ff @(posedge clk)
     begin
         if(rst)
         begin
-            o_rd_we     <= 1'b0 ;
+            rd_we_reg <= 1'b0 ;
             rd_choose_reg <= 2'b0 ;
         end
         else
         begin
-            o_rd_we     <= i_rd_we ;
+            rd_we_reg <= i_rd_we ;
             rd_choose_reg <= i_rd_choose ;
         end
     end
     assign o_rd_choose = rd_choose_reg ;
+    assign o_rd_we = rd_we_reg ;
 endmodule
 
