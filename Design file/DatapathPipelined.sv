@@ -25,21 +25,19 @@ module f_pipelined (
         output logic [`REG_SIZE:0] o_pc,
         output logic [`REG_SIZE:0] o_inst
 );
-    (* max_fanout = 16*) logic [`REG_SIZE:0] inst_reg ;
     always_ff @(posedge clk)
     begin
         if(rst)
         begin
             o_pc <= 32'b0 ;
-            inst_reg <= 32'b0 ;
+            o_inst <= 32'b0 ;
         end
         else if(!freeze)
         begin
             o_pc <= i_pc ;
-            inst_reg <= i_inst ;
+            o_inst <= i_inst ;
         end
     end
-    assign o_inst = inst_reg ;
 endmodule
 
 module DatapathPipelined
@@ -78,8 +76,6 @@ module DatapathPipelined
     /* PREPARE SIGNALS */
     /*******************/
     logic load_stall ;
-    logic div_stall ;
-    logic mul_stall ;
     logic rd_we_fromW ;
     logic rd_we_fromM ;
     logic [4:0] rd_fromX ;
@@ -155,6 +151,11 @@ module DatapathPipelined
     logic is_lui_fromM ;
     logic is_div_mul ;
     logic div_mul ;
+    logic div_mul_fromM ;
+    logic is_div ;
+    logic is_mul ;
+    logic div_stall ;
+    logic mul_stall ;
     logic b_cond ;
     logic b_cond_fromM ;
     logic jump_fromM ;
@@ -174,9 +175,14 @@ module DatapathPipelined
     logic [`REG_SIZE:0] load_value_fromW ;
     logic [`INST_SIZE:0] ra_fromW ;
     logic [1:0] rd_choose_fromW ;
+    logic rd_we_inM ;
+    logic [1:0]rd_in_choose_inM ;
+    logic [4:0] rd_inM ;
+    logic choose_mul_ctrl ;
     logic invalid_decode ;
     div_control_t ctrl ;
-    div_control_t delay_ctrl ;
+    div_control_t div_ctrl ;
+    div_control_t mul_ctrl ;
     /***************/
     /* FETCH STAGE */
     /***************/
@@ -192,6 +198,7 @@ module DatapathPipelined
     // send PC to imem
     assign pc_to_imem = f_pc_current;
 
+    // branch signal on will break the stall of this pipelined
     f_pipelined D (
         .clk(clk),
         .rst(rst),
@@ -248,7 +255,16 @@ module DatapathPipelined
       .stall(load_stall)
     );
 
-    assign ctrl = {is_div_mul, rd_we, inst_rd, rd_choose} ;
+    mul_stall detect_mul_stall(
+      .mul_setup(is_mul),
+      .mul_ex(choose_mul_ctrl),
+      .rs1(inst_rs1),
+      .rs2(inst_rs2),
+      .ex_rd(rd_inM),
+      .stall(mul_stall)
+    );
+
+    assign ctrl = {(is_div_mul & inst_funct3[2] == 1'b1), rd_we, inst_rd, rd_choose} ;
     shift_register Shift_divcontrol(
       .clk(clk),
       .rst(rst),
@@ -257,18 +273,15 @@ module DatapathPipelined
       .rs2(inst_rs2),
       .rd(inst_rd),
       .cur_ctrl(ctrl),
-      .delay_ctrl(delay_ctrl),
-      .div_stall(div_stall),
-      .mul_stall(mul_stall)
+      .div_ctrl(div_ctrl),
+      .div_stall(div_stall)
     );
 
     x_pipelined X(
       .clk(clk), .rst(rst),
-      .nops((load_stall || is_branch || div_stall || mul_stall || halt)),
       .i_rs1_data(rs1_data),
       .i_rs2_data(rs2_data),
       .i_imm_data(imm_operand),
-      .i_alu_control({inst_fromD[30],inst_funct3}),
       .i_rd(inst_rd),
       .i_rs1(inst_rs1),
       .i_rs2(inst_rs2),
@@ -276,7 +289,6 @@ module DatapathPipelined
       .o_rs1_data(rs1_fromX),
       .o_rs2_data(rs2_fromX),
       .o_imm_data(imm_fromX),
-      .o_alu_control(alu_control_fromX),
       .o_rd(rd_fromX),
       .o_rs1(rs1_addr),
       .o_rs2(rs2_addr),
@@ -285,7 +297,7 @@ module DatapathPipelined
 
     x_control_pipelined Xcontrol(
       .clk(clk), .rst(rst),
-      .nops((load_stall || is_branch || div_stall || mul_stall || halt)),
+      .nops((is_branch || load_stall || div_stall || mul_stall || halt)),
       .i_store_control(store_control),
       .i_load_control(load_control),
       .i_is_div_mul(is_div_mul),
@@ -293,6 +305,7 @@ module DatapathPipelined
       .i_rd_we(rd_we),
       .i_rd_in_choose(rd_choose),
       .i_alu_operand2(op2_choose),
+      .i_alu_control({inst_fromD[30],inst_funct3}),
       .i_inst_branch(branch_control),
       .i_inst_jump(jump),
       .o_store_control(store_control_fromX),
@@ -302,6 +315,7 @@ module DatapathPipelined
       .o_rd_we(rd_we_fromX),
       .o_rd_in_choose(rd_choose_fromX),
       .o_alu_operand2(op2_choose_fromX),
+      .o_alu_control(alu_control_fromX),
       .o_inst_branch(branch_fromX),
       .o_inst_jump(jump_fromX)
     );
@@ -378,6 +392,24 @@ module DatapathPipelined
       .m_alu_choose(m_aluout_choose)
     );
 
+    assign is_div = (is_div_mul_fromX && alu_control_fromX[2] == 1'b1) ;
+
+    // Always stall 1 clk for mul execute because of setup stage for mul
+    // Also a signal to detect it is mul inst (is_mul)
+    assign is_mul = (is_div_mul_fromX && alu_control_fromX[2] == 1'b0) ;
+    always_ff @(posedge clk)
+    begin
+      choose_mul_ctrl <= is_mul ;
+      mul_ctrl <= {1'b0, rd_we_fromX, rd_fromX, rd_choose_fromX} ;
+    end
+    always_comb begin
+      rd_inM = choose_mul_ctrl? mul_ctrl.rd : rd_fromX ;
+      rd_we_inM = choose_mul_ctrl? mul_ctrl.rd_we : rd_we_fromX ;
+      rd_in_choose_inM = choose_mul_ctrl? mul_ctrl.rd_in_choose : rd_choose_fromX ;
+
+      div_mul = (div_ctrl.done | choose_mul_ctrl)? 1'b1 : 1'b0 ;
+    end
+
     Input_Mem_control Input_Dmem(
       .rs1(operand1),
       .imm(imm_fromX),
@@ -401,7 +433,6 @@ module DatapathPipelined
       .i_load_byte(load_byte),
       .i_lui_data(imm_fromX),
       .i_rs2_addr(rs2_addr),
-      .i_rd((delay_ctrl.done)? delay_ctrl.rd : rd_fromX),
       .i_ra(return_addr),
       .o_pc_branch(pc_branch_fromM),
       .o_aluout(aluout_fromM),
@@ -412,31 +443,36 @@ module DatapathPipelined
       .o_load_byte(load_byte_fromM),
       .o_lui_data(lui_data_fromM),
       .o_rs2_addr(rs2_addr_fromM),
-      .o_rd(rd_fromM),
       .o_ra(ra_fromM)
     );
 
     m_control_pipelined Mcontrol(
       .clk(clk), .rst(rst),
-      .nops(is_branch),
-      .is_div(is_div_mul_fromX && (alu_control_fromX[2] == 1'b1)),
-      .is_mul(is_div_mul_fromX && (alu_control_fromX[2] == 1'b0)),
-      .div_ctrl(delay_ctrl),
+      .nops(is_branch | is_mul | is_div | div_ctrl.done),
       .i_is_lui(is_lui_fromX),
       .i_b_cond(b_cond),
       .i_jump(jump_fromX[0]),
       .i_branch(branch_fromX[0]),
       .i_load_control(load_control_fromX),
-      .i_rd_we(rd_we_fromX),
-      .i_rd_in_choose(rd_choose_fromX),
       .o_is_lui(is_lui_fromM),
       .o_b_cond(b_cond_fromM),
       .o_jump(jump_fromM),
       .o_branch(branch_fromM),
-      .o_load_control(load_control_fromM),
+      .o_load_control(load_control_fromM)
+    );
+
+    m_div_mul_control_pipelined M_div_mul(
+      .clk(clk), .rst(rst),
+      .nops(is_branch | is_mul | is_div),
+      .div_ctrl(div_ctrl),
+      .i_rd_we(rd_we_inM),
+      .i_rd(rd_inM),
+      .i_rd_in_choose(rd_in_choose_inM),
+      .i_div_mul(div_mul),
       .o_rd_we(rd_we_fromM),
+      .o_rd(rd_fromM),
       .o_rd_in_choose(rd_choose_fromM),
-      .div_mul(div_mul)
+      .o_div_mul(div_mul_fromM)
     );
 
     /****************/
@@ -467,7 +503,7 @@ module DatapathPipelined
       endcase
     end
 
-    assign final_ex_data = div_mul? m_alu_out : ex_data ;
+    assign final_ex_data = div_mul_fromM? m_alu_out : ex_data ;
 
     Detect_branch detect_branch(
       .b_cond(b_cond_fromM),
@@ -568,9 +604,9 @@ module InstMemory #(
   // memory is arranged as an array of 4B words
   logic [`REG_SIZE:0] mem_array [NUM_WORDS];
   //preload instructions to mem_array
-  initial begin
-    $readmemh("mem_initial_contents.hex", mem_array);
-  end
+  // initial begin
+  //   $readmemh("mem_initial_contents.hex", mem_array);
+  // end
 
   localparam int AddrMsb = $clog2(NUM_WORDS) + 1;
   localparam int AddrLsb = 2;

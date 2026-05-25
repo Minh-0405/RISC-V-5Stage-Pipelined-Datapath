@@ -63,10 +63,25 @@ endmodule
 
 module load_stall(
         input  logic is_load,
-        input  logic [4:0] rs1, rs2,
+        input  logic [4:0] rs1,
+        input  logic [4:0] rs2,
         input  logic [4:0] ex_rd,
         output logic stall
 );
     assign stall = (is_load) && ((ex_rd == rs1) || (ex_rd == rs2)) ;
+endmodule
+
+module mul_stall(
+        input  logic mul_setup, // stage setup of mul (need to stall)
+        input  logic mul_ex,    // stage execute of mul
+        input  logic [4:0] rs1,
+        input  logic [4:0] rs2,
+        input  logic [4:0] ex_rd,
+        output logic stall
+);
+    // mul need 1 stage to setup for signed data -> always stall for 1 clk
+    // second condition is check for forwarding
+    // mul always forwarding at WB stage so need to stall 1 clk
+    assign stall = mul_setup || (mul_ex && ((ex_rd == rs1) || (ex_rd == rs2))) ;
 endmodule
 

@@ -202,11 +202,10 @@ module Control_unit
 endmodule
 
 module x_pipelined (
-        input  logic clk, rst, nops,
+        input  logic clk, rst,
         input  logic [`REG_SIZE:0] i_rs1_data,
         input  logic [`REG_SIZE:0] i_rs2_data,
         input  logic [`REG_SIZE:0] i_imm_data,
-        input  logic [3:0]         i_alu_control,
         input  logic [4:0]         i_rd,
         input  logic [4:0]         i_rs1,
         input  logic [4:0]         i_rs2,
@@ -214,7 +213,6 @@ module x_pipelined (
         output logic [`REG_SIZE:0] o_rs1_data,
         output logic [`REG_SIZE:0] o_rs2_data,
         output logic [`REG_SIZE:0] o_imm_data,
-        output logic [3:0]         o_alu_control,
         output logic [4:0]         o_rd,
         output logic [4:0]         o_rs1,
         output logic [4:0]         o_rs2,
@@ -227,7 +225,6 @@ module x_pipelined (
             o_rs1_data     <= 32'b0 ;
             o_rs2_data     <= 32'b0 ;
             o_imm_data     <= 32'b0 ;
-            o_alu_control  <= 4'b0 ;
             o_rd           <= 5'b0 ;
             o_rs1          <= 5'b0 ;
             o_rs2          <= 5'b0 ;
@@ -235,13 +232,9 @@ module x_pipelined (
         end
         else
         begin
-            if(!nops)
-            begin
-                o_rs1_data     <= i_rs1_data ;
-                o_rs2_data     <= i_rs2_data ;
-            end
+            o_rs1_data     <= i_rs1_data ;
+            o_rs2_data     <= i_rs2_data ;
             o_imm_data     <= i_imm_data ;
-            o_alu_control  <= i_alu_control ;
             o_rd           <= i_rd ;
             o_rs1           <= i_rs1 ;
             o_rs2           <= i_rs2 ;
@@ -259,6 +252,7 @@ module x_control_pipelined (
         input  logic       i_rd_we,
         input  logic [1:0] i_rd_in_choose,
         input  logic       i_alu_operand2,
+        input  logic [3:0] i_alu_control,
         input  logic [3:0] i_inst_branch,
         input  logic [1:0] i_inst_jump,
         output logic [2:0] o_store_control,
@@ -268,11 +262,13 @@ module x_control_pipelined (
         output logic       o_rd_we,
         output logic [1:0] o_rd_in_choose,
         output logic       o_alu_operand2,
+        output logic [3:0] o_alu_control,
         output logic [3:0] o_inst_branch,
         output logic [1:0] o_inst_jump
 );
     (* max_fanout = 16 *) logic is_lui_reg ;
     (* max_fanout = 16 *) logic alu_operand2_reg ;
+    (* max_fanout = 16 *) logic [3:0] alu_control_reg ;
     (* max_fanout = 16 *) logic [1:0] inst_jump_reg ;
 
     always_ff @(posedge clk)
@@ -285,7 +281,8 @@ module x_control_pipelined (
             is_lui_reg        <= 1'b0 ;
             o_rd_we         <= 1'b0 ;
             o_rd_in_choose  <= 2'b0 ;
-            alu_operand2_reg  <= 1'b0 ;
+            alu_operand2_reg <= 1'b0 ;
+            alu_control_reg <= 4'b0 ;
             o_inst_branch   <= 4'b0 ;
             inst_jump_reg     <= 2'b0 ;
         end
@@ -298,6 +295,7 @@ module x_control_pipelined (
             o_rd_we         <= i_rd_we ;
             o_rd_in_choose  <= i_rd_in_choose ;
             alu_operand2_reg  <= i_alu_operand2 ;
+            alu_control_reg <= i_alu_control ;
             o_inst_branch   <= i_inst_branch ;
             inst_jump_reg     <= i_inst_jump ;
         end
@@ -307,6 +305,7 @@ module x_control_pipelined (
     begin
         o_is_lui = is_lui_reg ;
         o_alu_operand2 = alu_operand2_reg ;
+        o_alu_control = alu_control_reg ;
         o_inst_jump = inst_jump_reg ;
     end
 endmodule

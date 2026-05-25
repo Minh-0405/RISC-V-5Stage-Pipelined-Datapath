@@ -23,53 +23,52 @@ module shift_register(
         input  logic [4:0] rs2,
         input  logic [4:0] rd,
         input  div_control_t cur_ctrl,
-        output div_control_t delay_ctrl,
-        output logic div_stall,
-        output logic mul_stall
+        output div_control_t div_ctrl,
+        output logic div_stall
 );
-    logic [`DIVIDER_STAGES-1:0] is_stall ;
-    div_control_t stage_ctrl [`DIVIDER_STAGES] ;
+    logic [`DIVIDER_STAGES:0] is_stall ;
+    div_control_t stage_ctrl [`DIVIDER_STAGES+1] ;
 
     always_comb
     begin
-        for(int i=0 ; i < `DIVIDER_STAGES-2 ; i++)
+        for(int i=0 ; i < `DIVIDER_STAGES-1 ; i++)
         begin
             is_stall[i] = ((stage_ctrl[i].done == 1) && (invalid_decode == 0) &&
                                 ((rs1 == stage_ctrl[i].rd) || (rs2 == stage_ctrl[i].rd))) ;
         end
-        is_stall[`DIVIDER_STAGES-2] = (stage_ctrl[`DIVIDER_STAGES-2].done == 1) ;
+        is_stall[`DIVIDER_STAGES-1] = (stage_ctrl[`DIVIDER_STAGES-1].done == 1) ;
     end
 
     // Case forwarding: div forwarding must forward at stage WB, so need to stall 1 clk if neccessary
-    assign is_stall[`DIVIDER_STAGES-1] = ((stage_ctrl[`DIVIDER_STAGES-1].done == 1) &&
+    assign is_stall[`DIVIDER_STAGES] = ((stage_ctrl[`DIVIDER_STAGES].done == 1) &&
                                 (invalid_decode == 0) &&
-                                ((rs1 == stage_ctrl[`DIVIDER_STAGES-1].rd) ||
-                                (rs2 == stage_ctrl[`DIVIDER_STAGES-1].rd))) ;
+                                ((rs1 == stage_ctrl[`DIVIDER_STAGES].rd) ||
+                                (rs2 == stage_ctrl[`DIVIDER_STAGES].rd))) ;
 
     always_ff @(posedge clk)
     begin
         if(rst)
         begin
-            for(int i=0 ; i < `DIVIDER_STAGES ; i++)
+            for(int i=0 ; i < `DIVIDER_STAGES+1 ; i++)
                 stage_ctrl[i] <= 9'b0 ;
         end
         else
         begin
-            if(!(|is_stall) && (rd != stage_ctrl[0].rd) && (cur_ctrl.done == 1))
+            // ctrl of div inst will be shifted to create the delay
+            if(!(|is_stall) && (cur_ctrl.done == 1))
                 stage_ctrl[0] <= cur_ctrl ;
             else stage_ctrl[0] <= 9'b0 ;
-            for(int i=1 ; i < `DIVIDER_STAGES ; i++)
+            for(int i=1 ; i < `DIVIDER_STAGES+1 ; i++)
             begin
+                // check if rd of following is the same as div above
+                // -> flush div inst (if div not finish)
                 if(rd == stage_ctrl[i-1].rd) stage_ctrl[i] <= 9'b0 ;
                 else stage_ctrl[i] <= stage_ctrl[i-1] ;
             end
         end
     end
-    assign delay_ctrl = stage_ctrl[`DIVIDER_STAGES-1] ;
-
+    assign div_ctrl = stage_ctrl[`DIVIDER_STAGES] ;
     assign div_stall = |(is_stall) ;
-    // mul forwarding only in WB stage to optimize performance
-    assign mul_stall = is_stall[0] ;
 endmodule
 
 module Regs(

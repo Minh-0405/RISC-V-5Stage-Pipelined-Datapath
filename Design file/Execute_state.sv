@@ -143,8 +143,6 @@ module M_ALUs (
    logic signed [(`REG_SIZE+1)*2+1:0] signed_mul ;
    assign choice_mul1 = (control[1:0] == 2'b11)? $signed({1'b0, rs1}) : $signed(rs1) ;
    assign choice_mul2 = ((control[1] == 1))? $signed({1'b0, rs2}) : $signed(rs2) ;
-   assign signed_mul = choice_mul1 * choice_mul2 ;
-   assign mul_out = signed_mul[(`REG_SIZE+1)*2+1:0] ;
 
    localparam logic [2:0] Mul = 3'b000 ;
    localparam logic [2:0] MulH = 3'b001 ;
@@ -178,17 +176,35 @@ module M_ALUs (
    end
 
     logic [2:0] delay_div_choose ;
-   DividerUnsignedPipelined unit (
-       .clk(clk), .rst(rst),
-       .i_signedchoose(tmp_choose),
-       .i_dividend(choice_dividend),
-       .i_divisor(choice_divisor),
-       .o_remainder(rem_out),
-       .o_quotient(quot_out),
-       .o_signedchoose(delay_div_choose)
-   );
+    logic [2:0] delay_choose ;
+    logic [`REG_SIZE:0] dividend_in_divunit ;
+    logic [`REG_SIZE:0] divisor_in_divunit ;
+    logic [`REG_SIZE+1:0] mul_op1_in_mulunit ;
+    logic [`REG_SIZE+1:0] mul_op2_in_mulunit ;
+    // Regs for pipelining div/mul execution
+    // Above stage is set up stage for signed/unsigned input data
+    always_ff @(posedge clk)
+    begin
+        dividend_in_divunit <= choice_dividend ;
+        divisor_in_divunit <= choice_divisor ;
+        mul_op1_in_mulunit <= choice_mul1 ;
+        mul_op2_in_mulunit <= choice_mul2 ;
+        delay_choose <= tmp_choose ;
+    end
 
-   assign m_alu_choose = (delay_div_choose[2] == 1)? delay_div_choose : tmp_choose ;
+    DividerUnsignedPipelined unit (
+        .clk(clk), .rst(rst),
+        .i_signedchoose(delay_choose),
+        .i_dividend(dividend_in_divunit),
+        .i_divisor(divisor_in_divunit),
+        .o_remainder(rem_out),
+        .o_quotient(quot_out),
+        .o_signedchoose(delay_div_choose)
+    );
+    assign signed_mul = mul_op1_in_mulunit * mul_op2_in_mulunit ;
+
+    assign mul_out = signed_mul[(`REG_SIZE+1)*2+1:0] ;
+    assign m_alu_choose = (delay_div_choose[2] == 1)? delay_div_choose : delay_choose ;
 endmodule
 
 module m_pipelined(
@@ -202,7 +218,6 @@ module m_pipelined(
         input  logic [1:0]         i_load_byte,
         input  logic [`REG_SIZE:0] i_lui_data,
         input  logic [4:0]         i_rs2_addr,
-        input  logic [4:0]         i_rd,
         input  logic [`INST_SIZE:0]i_ra,
         output logic [`REG_SIZE:0] o_pc_branch,
         output logic [`REG_SIZE:0] o_aluout,
@@ -213,22 +228,18 @@ module m_pipelined(
         output logic [1:0]         o_load_byte,
         output logic [`REG_SIZE:0] o_lui_data,
         output logic [4:0]         o_rs2_addr,
-        output logic [4:0]         o_rd,
         output logic [`INST_SIZE:0]o_ra
 );
-    (* max_fanout = 16 *) logic [`REG_SIZE:0] aluout_reg ;
-    (* max_fanout = 16 *) logic [4:0] rd_reg ;
 
     always_ff @(posedge clk)
     begin
         if(rst)
         begin
             o_pc_branch       <= 32'b0 ;
-            aluout_reg        <= 32'b0 ;
+            o_aluout          <= 32'b0 ;
             o_load_byte       <= 2'b0 ;
             o_lui_data        <= 32'b0 ;
             o_rs2_addr        <= 5'b0 ;
-            rd_reg              <= 5'b0 ;
             o_ra              <= 32'b0 ;
             o_quotient        <= 32'b0 ;
             o_remainder       <= 32'b0 ;
@@ -238,11 +249,10 @@ module m_pipelined(
         else
         begin
             o_pc_branch       <= i_pc_branch ;
-            aluout_reg        <= i_aluout ;
+            o_aluout          <= i_aluout ;
             o_load_byte       <= i_load_byte ;
             o_lui_data        <= i_lui_data ;
             o_rs2_addr        <= i_rs2_addr ;
-            rd_reg              <= i_rd ;
             o_ra              <= i_ra ;
             o_quotient        <= i_quotient ;
             o_remainder       <= i_remainder ;
@@ -250,73 +260,91 @@ module m_pipelined(
             o_m_aluout_choose <= i_m_aluout_choose ;
         end
     end
-    assign o_aluout = aluout_reg ;
-    assign o_rd = rd_reg ;
 endmodule
 
 module m_control_pipelined(
         input  logic clk, rst,
         input  logic nops,
-        input  logic is_div,
-        input  logic is_mul,
-        input  div_control_t div_ctrl,
         input  logic i_is_lui,
         input  logic i_b_cond,
         input  logic i_jump,
         input  logic i_branch,
         input  logic [2:0] i_load_control,
-        input  logic       i_rd_we,
-        input  logic [1:0] i_rd_in_choose,
         output logic div_mul,
         output logic o_is_lui,
         output logic o_b_cond,
         output logic o_jump,
         output logic o_branch,
-        output logic [2:0] o_load_control,
-        output logic       o_rd_we,
-        output logic [1:0] o_rd_in_choose
+        output logic [2:0] o_load_control
 );
     (* max_fanout = 16 *) logic [2:0] load_control_reg ;
-    (* max_fanout = 16 *) logic [4:0] rd_we_reg ;
+    (* max_fanout = 16 *) logic is_lui_reg ;
 
     always_ff @(posedge clk)
     begin
-        if(rst | is_div | nops)
+        if(rst | nops)
         begin
-            o_is_lui       <= 1'b0 ;
+            is_lui_reg       <= 1'b0 ;
             o_b_cond       <= 1'b0 ;
             o_jump         <= 1'b0 ;
             o_branch       <= 1'b0 ;
             load_control_reg <= 3'b0 ;
-            rd_we_reg        <= 1'b0 ;
-            o_rd_in_choose <= 2'b0 ;
             div_mul       <= 1'b0 ;
         end
         else
         begin
-            if(div_ctrl.done)
-            begin
-                o_is_lui       <= 1'b0 ;
-                o_b_cond       <= 1'b0 ;
-                o_jump         <= 1'b0 ;
-                o_branch       <= 1'b0 ;
-                load_control_reg <= 3'b0 ;
-                rd_we_reg        <= div_ctrl.rd_we ;
-                o_rd_in_choose <= div_ctrl.rd_in_choose ;
-            end
-            else
-            begin
-                o_is_lui       <= i_is_lui ;
-                load_control_reg <= i_load_control ;
-                rd_we_reg        <= i_rd_we ;
-                o_rd_in_choose <= i_rd_in_choose ;
-                o_b_cond       <= i_b_cond ;
-                o_jump         <= i_jump ;
-                o_branch       <= i_branch ;
-            end
-            div_mul <= (div_ctrl.done | is_mul)? 1'b1 : 1'b0 ;
+            is_lui_reg       <= i_is_lui ;
+            load_control_reg <= i_load_control ;
+            o_b_cond       <= i_b_cond ;
+            o_jump         <= i_jump ;
+            o_branch       <= i_branch ;
         end
     end
     assign o_load_control = load_control_reg ;
-    assign o_rd_we = rd_we_reg ;
+    assign o_is_lui = is_lui_reg ;
+endmodule
+
+module m_div_mul_control_pipelined(
+        input  logic clk, rst,
+        input  logic nops,
+        input  div_control_t div_ctrl,
+        input logic i_div_mul,
+        input  logic       i_rd_we,
+        input  logic [4:0] i_rd,
+        input  logic [1:0] i_rd_in_choose,
+        output logic o_div_mul,
+        output logic       o_rd_we,
+        output logic [4:0] o_rd,
+        output logic [1:0] o_rd_in_choose
+);
+    (* max_fanout = 16 *) logic [1:0] rd_in_choose_reg ;
+    (* max_fanout = 16 *) logic div_mul_reg  ;
+
+    always_ff @(posedge clk)
+    begin
+        div_mul_reg <= i_div_mul ;
+        if(rst ||nops)
+        begin
+            o_rd_we <= 'b0 ;
+            o_rd <= 'b0 ;
+            rd_in_choose_reg <= 'b0 ;
+            div_mul_reg <= 'b0 ;
+        end
+        else if(div_ctrl.done)
+        begin
+            o_rd_we <= div_ctrl.rd_we ;
+            o_rd <= div_ctrl.rd ;
+            rd_in_choose_reg <= div_ctrl.rd_in_choose ;
+
+        end
+        else
+        begin
+            o_rd_we <= i_rd_we ;
+            o_rd <= i_rd ;
+            rd_in_choose_reg <= i_rd_in_choose ;
+        end
+    end
+
+    assign o_div_mul = div_mul_reg ;
+    assign o_rd_in_choose = rd_in_choose_reg ;
 endmodule
