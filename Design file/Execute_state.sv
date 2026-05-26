@@ -38,7 +38,6 @@ module transform_pos #(
 endmodule
 
 module ALUs (
-        input  logic rst,
         input  logic [`REG_SIZE:0] rs1, rs2,
         input  logic inst_type, // 0: R-type ; 1: I-type
         input  logic [3:0] control, // control[3] = inst[30], remain 3 bits are funct3
@@ -179,8 +178,8 @@ module M_ALUs (
     logic [2:0] delay_choose ;
     logic [`REG_SIZE:0] dividend_in_divunit ;
     logic [`REG_SIZE:0] divisor_in_divunit ;
-    logic [`REG_SIZE+1:0] mul_op1_in_mulunit ;
-    logic [`REG_SIZE+1:0] mul_op2_in_mulunit ;
+    logic signed [`REG_SIZE+1:0] mul_op1_in_mulunit ;
+    logic signed [`REG_SIZE+1:0] mul_op2_in_mulunit ;
     // Regs for pipelining div/mul execution
     // Above stage is set up stage for signed/unsigned input data
     always_ff @(posedge clk)
@@ -270,7 +269,6 @@ module m_control_pipelined(
         input  logic i_jump,
         input  logic i_branch,
         input  logic [2:0] i_load_control,
-        output logic div_mul,
         output logic o_is_lui,
         output logic o_b_cond,
         output logic o_jump,
@@ -289,7 +287,6 @@ module m_control_pipelined(
             o_jump         <= 1'b0 ;
             o_branch       <= 1'b0 ;
             load_control_reg <= 3'b0 ;
-            div_mul       <= 1'b0 ;
         end
         else
         begin

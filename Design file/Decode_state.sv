@@ -10,31 +10,24 @@
 `define OPCODE_SIZE 6
 
 module RegFile (
+        input  logic               clk,
+        input  logic               we,
         input  logic [        4:0] rd,
         input  logic [`REG_SIZE:0] rd_data,
         input  logic [        4:0] rs1,
         output logic [`REG_SIZE:0] rs1_data,
         input  logic [        4:0] rs2,
-        output logic [`REG_SIZE:0] rs2_data,
-        input  logic               clk,
-        input  logic               we,
-        input  logic               rst
+        output logic [`REG_SIZE:0] rs2_data
 );
     localparam int NumRegs = 32 ;
     logic [`REG_SIZE:0] regs [NumRegs];
+    integer i ; initial begin for(i=0 ; i<NumRegs ; i=i+1) regs[i] = 'b0 ; end
 
     always_ff @(posedge clk)
     begin
-        if(rst)
-        begin
-            for(int i=0 ; i <= `REG_SIZE ; i++)
-                regs[i] <= 0 ;
-        end
-        else
-        begin
-            if(we & (|rd)) regs[rd] <= rd_data ;
-        end
+        if(we & (|rd)) regs[rd] <= rd_data ;
     end
+
     always_comb // Read assyn -> read the newest data to X pipelined
     begin
         rs1_data = ((rs1 == rd) && we && (|rd)) ? rd_data : regs[rs1] ;
@@ -309,4 +302,3 @@ module x_control_pipelined (
         o_inst_jump = inst_jump_reg ;
     end
 endmodule
-

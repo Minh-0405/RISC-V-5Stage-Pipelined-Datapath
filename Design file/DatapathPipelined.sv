@@ -56,15 +56,15 @@ module DatapathPipelined
         output logic                error
 );
 
-    // cycle counter, not really part of any stage but useful for orienting within GtkWave
-    // do not rename this as the testbench uses this value
+    //cycle counter, not really part of any stage but useful for orienting within waveform
+    //only use for simulation, synthesize will ignore it
     logic [`REG_SIZE:0] cycles_current;
     always_ff @(posedge clk) begin
-    if (rst) begin
-        cycles_current <= 0;
-    end else begin
-        cycles_current <= cycles_current  + 1;
-    end
+      if (rst) begin
+          cycles_current <= 0;
+      end else begin
+          cycles_current <= cycles_current  + 1;
+      end
     end
 
     logic [3:0] e ;
@@ -83,7 +83,7 @@ module DatapathPipelined
     logic [4:0] rd_fromW ;
     logic [1:0] rd_choose_fromM ;
     logic [`REG_SIZE:0] aluout_fromM ;
-    (* max_fanout = 16 *) logic [`REG_SIZE:0] f_pc_current;
+    logic [`REG_SIZE:0] f_pc_current;
     logic [`REG_SIZE:0] pc_branch ;
     logic [`REG_SIZE:0] pc_branch_fromM ;
     logic is_branch ;
@@ -129,7 +129,7 @@ module DatapathPipelined
     logic [2:0] alu_operation ;
     logic is_sub, is_sra, b_type ;
     logic [`REG_SIZE:0] operand1 ;
-    (* max_fanout = 16 *) logic [`REG_SIZE:0] operand2 ;
+    logic [`REG_SIZE:0] operand2 ;
     logic [`REG_SIZE:0] base_op2 ;
     logic [1:0] op1_control ;
     logic [1:0] op2_control ;
@@ -215,7 +215,6 @@ module DatapathPipelined
     assign {inst_funct7, inst_rs2, inst_rs1, inst_funct3, inst_rd, inst_opcode} = inst_fromD ;
     RegFile rf(
         .clk(clk),
-        .rst(rst),
         .we(rd_we_fromW),
         .rd(rd_fromW),
         .rd_data(rd_in),
@@ -372,7 +371,6 @@ module DatapathPipelined
     );
 
     ALUs ALU(
-      .rst(rst),
       .inst_type(op2_choose_fromX),
       .rs1(operand1),
       .rs2(operand2),
@@ -595,7 +593,6 @@ endmodule
 module InstMemory #(
     parameter int NUM_WORDS = 512
 ) (
-    input  logic               rst,                 // rst for both imem and dmem
     input  logic               clk,                 // clock for both imem and dmem
                                                     // The memory reads/writes on @(negedge clk)
     input  logic [`REG_SIZE:0] pc_to_imem,          // must always be aligned to a 4B boundary
@@ -603,10 +600,11 @@ module InstMemory #(
 );
   // memory is arranged as an array of 4B words
   logic [`REG_SIZE:0] mem_array [NUM_WORDS];
-  //preload instructions to mem_array
-  // initial begin
-  //   $readmemh("mem_initial_contents.hex", mem_array);
-  // end
+  //preload instructions to mem_array for implement
+  //erase it when simulate cause testbench will load instructions into memory
+  initial begin
+    $readmemh("mem_initial_contents.hex", mem_array);
+  end
 
   localparam int AddrMsb = $clog2(NUM_WORDS) + 1;
   localparam int AddrLsb = 2;
@@ -642,7 +640,6 @@ module Processor (
   InstMemory #(
       .NUM_WORDS(8192)
   ) memory (
-    .rst                 (rst_syn),
     .clk                 (clk),
     // imem is read-only
     .pc_to_imem          (pc_to_imem),
