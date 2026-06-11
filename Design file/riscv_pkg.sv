@@ -23,7 +23,7 @@ package riscv_pkg;
     localparam logic [`OPCODE_SIZE:0] OpRegReg  = 7'b01_100_11; // 'h33
     localparam logic [`OPCODE_SIZE:0] OpEnviron = 7'b11_100_11; // 'h73
 
-    //localparam logic [`OPCODE_SIZE:0] OpAuipc   = 7'b00_101_11; // 'h17
+    localparam logic [`OPCODE_SIZE:0] OpAuipc   = 7'b00_101_11; // 'h17
     localparam logic [`OPCODE_SIZE:0] OpLui     = 7'b01_101_11; // 'h37
 endpackage
 

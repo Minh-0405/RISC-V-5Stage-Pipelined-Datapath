@@ -83,7 +83,7 @@ module DatapathPipelined
     logic [4:0] rd_fromW ;
     logic [1:0] rd_choose_fromM ;
     logic [`REG_SIZE:0] aluout_fromM ;
-    logic [`REG_SIZE:0] f_pc_current;
+    logic [`REG_SIZE:0] f_next_pc;
     logic [`REG_SIZE:0] pc_branch ;
     logic [`REG_SIZE:0] pc_branch_fromM ;
     logic is_branch ;
@@ -102,6 +102,7 @@ module DatapathPipelined
     logic [2:0] load_control ;
     logic [1:0] rd_choose ;
     logic op2_choose ;
+    logic op1_choose ;
     logic is_lui ;
     logic rd_we ;
     logic [3:0] branch_control ;
@@ -118,6 +119,7 @@ module DatapathPipelined
     logic [4:0] rs1_addr ;
     logic [4:0] rs2_addr ;
     logic op2_choose_fromX ;
+    logic op1_choose_fromX ;
     logic is_div_mul_fromX ;
     logic is_lui_fromX ;
     logic rd_we_fromX ;
@@ -131,6 +133,7 @@ module DatapathPipelined
     logic [`REG_SIZE:0] operand1 ;
     logic [`REG_SIZE:0] operand2 ;
     logic [`REG_SIZE:0] base_op2 ;
+    logic [`REG_SIZE:0] base_op1 ;
     logic [1:0] op1_control ;
     logic [1:0] op2_control ;
     logic [`REG_SIZE:0] alu_out ;
@@ -174,7 +177,7 @@ module DatapathPipelined
     logic [`REG_SIZE:0] aluout_fromW ;
     logic [`REG_SIZE:0] load_value_fromW ;
     logic [`INST_SIZE:0] ra_fromW ;
-    logic [1:0] rd_choose_fromW ;
+    logic rd_choose_fromW ;
     logic rd_we_inM ;
     logic [1:0]rd_in_choose_inM ;
     logic [4:0] rd_inM ;
@@ -190,20 +193,19 @@ module DatapathPipelined
     always_ff @(posedge clk) begin
       if (rst)
       begin
-        f_pc_current <= 32'd0;
+        f_next_pc <= 32'd0;
       end
-      else if(is_branch)  f_pc_current <= pc_branch_fromM ;
-      else if(!(load_stall | div_stall | mul_stall | halt)) f_pc_current <= f_pc_current + 4 ;
+      else if(!(load_stall | div_stall | mul_stall | halt)) f_next_pc <= pc_to_imem + 4 ;
     end
     // send PC to imem
-    assign pc_to_imem = f_pc_current;
+    assign pc_to_imem = (is_branch)? pc_branch_fromM : f_next_pc;
 
     // branch signal on will break the stall of this pipelined
     f_pipelined D (
         .clk(clk),
         .rst(rst),
         .freeze((!is_branch) && ((load_stall) || (div_stall) || (mul_stall) || (halt))),
-        .i_pc(f_pc_current),
+        .i_pc(pc_to_imem),
         .i_inst(inst_from_imem),
         .o_pc(pc_fromD),
         .o_inst(inst_fromD)
@@ -238,6 +240,7 @@ module DatapathPipelined
       .rd_in_choose(rd_choose),
       .rd_we(rd_we),
       .alu_operand2(op2_choose),
+      .alu_operand1(op1_choose),
       .branch(branch_control),
       .jump(jump),
       .invalid_decode(invalid_decode),
@@ -304,6 +307,7 @@ module DatapathPipelined
       .i_rd_we(rd_we),
       .i_rd_in_choose(rd_choose),
       .i_alu_operand2(op2_choose),
+      .i_alu_operand1(op1_choose),
       .i_alu_control({inst_fromD[30],inst_funct3}),
       .i_inst_branch(branch_control),
       .i_inst_jump(jump),
@@ -314,6 +318,7 @@ module DatapathPipelined
       .o_rd_we(rd_we_fromX),
       .o_rd_in_choose(rd_choose_fromX),
       .o_alu_operand2(op2_choose_fromX),
+      .o_alu_operand1(op1_choose_fromX),
       .o_alu_control(alu_control_fromX),
       .o_inst_branch(branch_fromX),
       .o_inst_jump(jump_fromX)
@@ -338,8 +343,9 @@ module DatapathPipelined
       .rs(rs1_fromX),
       .mem_forward(ex_data),
       .wb_forward(rd_in),
-      .operand(operand1)
+      .operand(base_op1)
     );
+    assign operand1 = (op1_choose_fromX)? pc_fromX : base_op1 ;
 
     choice_operand op2(
       .op_control(op2_control),
@@ -372,6 +378,7 @@ module DatapathPipelined
 
     ALUs ALU(
       .inst_type(op2_choose_fromX),
+      .auipc(op1_choose_fromX),
       .rs1(operand1),
       .rs2(operand2),
       .control(alu_control_fromX),
@@ -384,6 +391,7 @@ module DatapathPipelined
       .rs1(operand1),
       .rs2(operand2),
       .control(alu_control_fromX[2:0]),
+      .div_done(div_ctrl.done),
       .quot_out(quotient),
       .rem_out(remainder),
       .mul_out(mul_out),
@@ -477,7 +485,15 @@ module DatapathPipelined
     /* MEMORY STAGE */
     /****************/
 
-    assign ex_data = (is_lui_fromM)? lui_data_fromM : aluout_fromM ;
+    always_comb
+    begin
+      case({rd_choose_fromM[1], is_lui_fromM})
+        2'b00:  ex_data = aluout_fromM ;
+        2'b01:  ex_data = lui_data_fromM ;
+        2'b10, 2'b11:  ex_data = ra_fromM ;
+        default:  ex_data = ra_fromM ;
+      endcase
+    end
 
     transform_2_compliment neg_quot(
       .in(quotient_fromM),
@@ -522,18 +538,16 @@ module DatapathPipelined
       .clk(clk), .rst(rst),
       .i_aluout(final_ex_data),
       .i_load_value(load_value),
-      .i_ra(ra_fromM),
       .i_rd(rd_fromM),
       .o_aluout(aluout_fromW),
       .o_load_value(load_value_fromW),
-      .o_ra(ra_fromW),
       .o_rd(rd_fromW)
     );
 
     w_control_pipelined Wcontrol(
       .clk(clk), .rst(rst),
-      .i_rd_we(rd_we_fromM),
-      .i_rd_choose(rd_choose_fromM),
+      .i_rd_we(rd_we_fromM & (~e[1])), // Stop load value when misalign addr error
+      .i_rd_choose(rd_choose_fromM[0]),
       .o_rd_we(rd_we_fromW),
       .o_rd_choose(rd_choose_fromW)
     );
@@ -544,9 +558,8 @@ module DatapathPipelined
     always_comb
     begin
       unique case(rd_choose_fromW)
-        2'b00:   rd_in = aluout_fromW ;
-        2'b01:   rd_in = load_value_fromW ;
-        2'b10:   rd_in = ra_fromW ;
+        1'b0:   rd_in = aluout_fromW ;
+        1'b1:   rd_in = load_value_fromW ;
         default: rd_in = aluout_fromW ;
       endcase
     end
@@ -567,26 +580,60 @@ module DataMemory #(
     input  logic [        3:0] store_we_to_dmem
 );
   // memory is arranged as an array of 4B words
-  logic [`REG_SIZE:0] mem_array [NUM_WORDS];
+  // riscv_test in github design for 2bytes memory cell
+  // remember to define RISCV_TEST when run riscv_test
   localparam int AddrMsb = $clog2(NUM_WORDS) + 1;
   localparam int AddrLsb = 2;
+  `ifndef RISCV_TEST
+    // Normal mode
+    logic [`REG_SIZE:0] mem_array [NUM_WORDS];
+  `else
+    // Riscv_test mode
+    logic [7:0] mem_array [NUM_WORDS*4] ;
+    wire [`REG_SIZE:0] addr_aligned = addr_to_dmem[AddrMsb:AddrLsb] << 2 ;
+  `endif
+
   always_ff @(posedge clk) begin
-    if(!rst)
-    begin
-      if (store_we_to_dmem[0]) begin
-        mem_array[addr_to_dmem[AddrMsb:AddrLsb]][7:0] <= store_data_to_dmem[7:0];
+    `ifndef RISCV_TEST
+      // Normal mode
+      if(!rst)
+      begin
+        if (store_we_to_dmem[0]) begin
+          mem_array[addr_to_dmem[AddrMsb:AddrLsb]][7:0] <= store_data_to_dmem[7:0];
+        end
+        if (store_we_to_dmem[1]) begin
+          mem_array[addr_to_dmem[AddrMsb:AddrLsb]][15:8] <= store_data_to_dmem[15:8];
+        end
+        if (store_we_to_dmem[2]) begin
+          mem_array[addr_to_dmem[AddrMsb:AddrLsb]][23:16] <= store_data_to_dmem[23:16];
+        end
+        if (store_we_to_dmem[3]) begin
+          mem_array[addr_to_dmem[AddrMsb:AddrLsb]][31:24] <= store_data_to_dmem[31:24];
+        end
+        load_data_from_dmem <= mem_array[addr_to_dmem[AddrMsb:AddrLsb]];
       end
-      if (store_we_to_dmem[1]) begin
-        mem_array[addr_to_dmem[AddrMsb:AddrLsb]][15:8] <= store_data_to_dmem[15:8];
+    `else
+      // Riscv_test mode
+      if(!rst)
+      begin
+        if (store_we_to_dmem[0]) begin
+          mem_array[addr_aligned] <= store_data_to_dmem[7:0];
+        end
+        if (store_we_to_dmem[1]) begin
+          mem_array[addr_aligned+1] <= store_data_to_dmem[15:8];
+        end
+        if (store_we_to_dmem[2]) begin
+          mem_array[addr_aligned+2] <= store_data_to_dmem[23:16];
+        end
+        if (store_we_to_dmem[3]) begin
+          mem_array[addr_aligned+3] <= store_data_to_dmem[31:24];
+        end
+        load_data_from_dmem <= {mem_array[addr_aligned+3],
+                        mem_array[addr_aligned+2],
+                        mem_array[addr_aligned+1],
+                        mem_array[addr_aligned]} ;
       end
-      if (store_we_to_dmem[2]) begin
-        mem_array[addr_to_dmem[AddrMsb:AddrLsb]][23:16] <= store_data_to_dmem[23:16];
-      end
-      if (store_we_to_dmem[3]) begin
-        mem_array[addr_to_dmem[AddrMsb:AddrLsb]][31:24] <= store_data_to_dmem[31:24];
-      end
-      load_data_from_dmem <= mem_array[addr_to_dmem[AddrMsb:AddrLsb]];
-    end
+    `endif
   end
 endmodule
 
@@ -599,18 +646,37 @@ module InstMemory #(
     output logic [`REG_SIZE:0] inst_from_imem       // the value at memory location pc_to_imem
 );
   // memory is arranged as an array of 4B words
-  logic [`REG_SIZE:0] mem_array [NUM_WORDS];
+  // riscv_test in github design for 2bytes memory cell
+
+  `ifndef RISCV_TEST
+    // Normal mode
+    logic [`REG_SIZE:0] mem_array [NUM_WORDS];
+    localparam int AddrMsb = $clog2(NUM_WORDS) + 1;
+    localparam int AddrLsb = 2;
+  `else
+    // Riscv_test mode
+    logic [7:0] mem_array [NUM_WORDS*4] ;
+    localparam int AddrMsb = $clog2(NUM_WORDS) + 1;
+    localparam int AddrLsb = 0;
+  `endif
+
   //preload instructions to mem_array for implement
   //erase it when simulate cause testbench will load instructions into memory
   initial begin
     $readmemh("mem_initial_contents.hex", mem_array);
   end
 
-  localparam int AddrMsb = $clog2(NUM_WORDS) + 1;
-  localparam int AddrLsb = 2;
-
   always_ff @(negedge clk) begin
-    inst_from_imem <= mem_array[pc_to_imem[AddrMsb:AddrLsb]];
+    `ifndef RISCV_TEST
+      // Normal mode
+      inst_from_imem <= mem_array[pc_to_imem[AddrMsb:AddrLsb]];
+    `else
+      // Riscv_test mode
+      inst_from_imem <= {mem_array[pc_to_imem[AddrMsb:AddrLsb]+3],
+                        mem_array[pc_to_imem[AddrMsb:AddrLsb]+2],
+                        mem_array[pc_to_imem[AddrMsb:AddrLsb]+1],
+                        mem_array[pc_to_imem[AddrMsb:AddrLsb]]} ;
+    `endif
   end
 endmodule
 

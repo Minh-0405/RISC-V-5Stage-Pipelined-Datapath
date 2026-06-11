@@ -40,6 +40,7 @@ endmodule
 module ALUs (
         input  logic [`REG_SIZE:0] rs1, rs2,
         input  logic inst_type, // 0: R-type ; 1: I-type
+        input  logic auipc,
         input  logic [3:0] control, // control[3] = inst[30], remain 3 bits are funct3
         output logic [`REG_SIZE:0] alu_out
 );
@@ -83,7 +84,7 @@ module ALUs (
 
     always_comb
     begin
-    unique case (control[2:0])
+    unique case (control[2:0] & (~{3{auipc}}))
         3'b000:  begin // ADD, SUB
             alu_out = alu_add_sub ;
         end
@@ -117,6 +118,7 @@ module M_ALUs (
        input  logic clk, rst,
        input  logic [`REG_SIZE:0] rs1, rs2,
        input  logic [2:0] control,
+       input  logic div_done,
        output logic [`REG_SIZE:0] quot_out,
        output logic [`REG_SIZE:0] rem_out,
        output logic [(`REG_SIZE)*2+1:0] mul_out,
@@ -163,11 +165,11 @@ module M_ALUs (
        3'b011: //MULHU
            tmp_choose = MulH ;
        3'b100: //DIV
-           tmp_choose = (rs1[31] ^ rs2[31])? NegQuo : Quo ;
+           tmp_choose = ((rs1[31] ^ rs2[31]) & |rs2)? NegQuo : Quo ;
        3'b101: //DIVU
            tmp_choose = Quo ;
        3'b110: //REM
-           tmp_choose = (rs1[31] == 1)? NegRem : Rem ;
+           tmp_choose = ((rs1[31] == 1) & |rs2)? NegRem : Rem ;
        3'b111: //REMU
            tmp_choose = Rem ;
        default: tmp_choose = Mul ;
@@ -203,7 +205,7 @@ module M_ALUs (
     assign signed_mul = mul_op1_in_mulunit * mul_op2_in_mulunit ;
 
     assign mul_out = signed_mul[(`REG_SIZE+1)*2+1:0] ;
-    assign m_alu_choose = (delay_div_choose[2] == 1)? delay_div_choose : delay_choose ;
+    assign m_alu_choose = (div_done)? delay_div_choose : delay_choose ;
 endmodule
 
 module m_pipelined(
