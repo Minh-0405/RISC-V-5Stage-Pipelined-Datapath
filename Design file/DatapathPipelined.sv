@@ -181,6 +181,7 @@ module DatapathPipelined
     logic rd_we_inM ;
     logic [1:0]rd_in_choose_inM ;
     logic [4:0] rd_inM ;
+    logic [`REG_SIZE:0] forward_data ;
     logic choose_mul_ctrl ;
     logic invalid_decode ;
     div_control_t ctrl ;
@@ -342,7 +343,7 @@ module DatapathPipelined
       .op_control(op1_control),
       .rs(rs1_fromX),
       .mem_forward(ex_data),
-      .wb_forward(rd_in),
+      .wb_forward(forward_data),
       .operand(base_op1)
     );
     assign operand1 = (op1_choose_fromX)? pc_fromX : base_op1 ;
@@ -351,7 +352,7 @@ module DatapathPipelined
       .op_control(op2_control),
       .rs(rs2_fromX),
       .mem_forward(ex_data),
-      .wb_forward(rd_in),
+      .wb_forward(forward_data),
       .operand(base_op2)
     );
     assign operand2 = (op2_choose_fromX)? imm_fromX : base_op2 ;
@@ -532,6 +533,15 @@ module DatapathPipelined
       .load_from_dmem(load_data_from_dmem),
       .load_value(load_value),
       .load_error(e[1])
+    );
+
+    wb_forward_pipelined wb_forward(
+      .clk(clk),
+      .rst(rst),
+      .aluout(final_ex_data),
+      .load_value(load_value),
+      .rd_choose(rd_choose_fromM[0]),
+      .forward_data(forward_data)
     );
 
     w_pipelined W(

@@ -85,3 +85,37 @@ module mul_stall(
     assign stall = mul_setup || (mul_ex && ((ex_rd == rs1) || (ex_rd == rs2))) ;
 endmodule
 
+module wb_forward_pipelined(
+        input  logic clk, rst,
+        input  logic [`REG_SIZE:0] aluout,
+        input  logic [`REG_SIZE:0] load_value,
+        input  logic rd_choose,
+        output logic [`REG_SIZE:0] forward_data
+);
+    logic [`REG_SIZE:0] aluout_forward ;
+    logic [`REG_SIZE:0] loaddata_forward ;
+    logic rd_choose_forward ;
+    always_ff @(posedge clk)
+    begin
+        if(rst)
+        begin
+            aluout_forward <= 'b0 ;
+            loaddata_forward <= 'b0 ;
+            rd_choose_forward <= 'b0 ;
+        end
+        else begin
+            aluout_forward <= aluout ;
+            loaddata_forward <= load_value ;
+            rd_choose_forward <= rd_choose ;
+        end
+    end
+
+    always_comb
+    begin
+      unique case(rd_choose_forward)
+        1'b0:   forward_data = aluout_forward ;
+        1'b1:   forward_data = loaddata_forward ;
+        default: forward_data = aluout_forward ;
+      endcase
+    end
+endmodule
