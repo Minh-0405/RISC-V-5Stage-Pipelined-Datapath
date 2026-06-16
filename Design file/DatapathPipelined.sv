@@ -182,7 +182,6 @@ module DatapathPipelined
     logic [1:0]rd_in_choose_inM ;
     logic [4:0] rd_inM ;
     logic [`REG_SIZE:0] forward_data ;
-    logic [4:0] w_forward_rd ;
     logic choose_mul_ctrl ;
     logic invalid_decode ;
     div_control_t ctrl ;
@@ -335,7 +334,7 @@ module DatapathPipelined
       .rs1(rs1_addr),
       .rs2(rs2_addr),
       .m_rd(rd_fromM),
-      .w_rd(w_forward_rd),
+      .w_rd(rd_fromW),
       .op1_control(op1_control),
       .op2_control(op2_control)
     ) ;
@@ -541,10 +540,8 @@ module DatapathPipelined
       .rst(rst),
       .aluout(final_ex_data),
       .load_value(load_value),
-      .rd(rd_fromM),
       .rd_choose(rd_choose_fromM[0]),
-      .forward_data(forward_data),
-      .w_forward_rd(w_forward_rd)
+      .forward_data(forward_data)
     );
 
     w_pipelined W(

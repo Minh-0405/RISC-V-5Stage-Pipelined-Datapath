@@ -89,10 +89,8 @@ module wb_forward_pipelined(
         input  logic clk, rst,
         input  logic [`REG_SIZE:0] aluout,
         input  logic [`REG_SIZE:0] load_value,
-        input  logic [4:0] rd,
         input  logic rd_choose,
-        output logic [`REG_SIZE:0] forward_data,
-        output logic [4:0] w_forward_rd
+        output logic [`REG_SIZE:0] forward_data
 );
     logic [`REG_SIZE:0] aluout_forward ;
     logic [`REG_SIZE:0] loaddata_forward ;
@@ -104,13 +102,11 @@ module wb_forward_pipelined(
             aluout_forward <= 'b0 ;
             loaddata_forward <= 'b0 ;
             rd_choose_forward <= 'b0 ;
-            w_forward_rd <= 'b0 ;
         end
         else begin
             aluout_forward <= aluout ;
             loaddata_forward <= load_value ;
             rd_choose_forward <= rd_choose ;
-            w_forward_rd <= rd ;
         end
     end
 
